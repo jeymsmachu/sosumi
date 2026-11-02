@@ -3,22 +3,25 @@ import 'package:flutter/material.dart';
 /// A top-level section in the app shell.
 enum AppSection {
   home,
-  browse,
+  newReleases,
   radio,
-  library;
+  library,
+  search;
 
   String get label => switch (this) {
     AppSection.home => 'Home',
-    AppSection.browse => 'Browse',
+    AppSection.newReleases => 'New',
     AppSection.radio => 'Radio',
     AppSection.library => 'Library',
+    AppSection.search => 'Search',
   };
 
   IconData get icon => switch (this) {
     AppSection.home => Icons.home_rounded,
-    AppSection.browse => Icons.explore_rounded,
+    AppSection.newReleases => Icons.grid_view_rounded,
     AppSection.radio => Icons.radio_rounded,
     AppSection.library => Icons.library_music_rounded,
+    AppSection.search => Icons.search_rounded,
   };
 }
 

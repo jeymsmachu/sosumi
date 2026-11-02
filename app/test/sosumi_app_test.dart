@@ -14,15 +14,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
 
     expect(find.text('sosumi'), findsWidgets);
-    expect(find.text('Recently played'), findsOneWidget);
-    expect(find.text('A quieter way to listen.'), findsOneWidget);
+    expect(find.text('Top Picks for You'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Settings').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('Settings'), findsOneWidget);
-    expect(find.text('Glass effects'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
   });
 
   testWidgets('switches to the compact dock on a narrow viewport', (
@@ -36,7 +35,7 @@ void main() {
     await tester.pumpWidget(const SosumiRoot(adaptiveQuality: false));
     await tester.pump(const Duration(milliseconds: 600));
 
-    expect(find.byKey(const Key('compact-dock')), findsOneWidget);
+    expect(find.byKey(const Key('mobile-tab-bar')), findsOneWidget);
     expect(find.text('Home'), findsWidgets);
   });
 }
