@@ -54,6 +54,9 @@ It deliberately has no dependency on Apple frameworks, Flutter, or DRM.
 Platform playback and DRM stay in the platform adapters. See
 [docs/backend.md](docs/backend.md).
 
+The deployment-owned token minter lives in `services/token` and is documented in
+[docs/token-service.md](docs/token-service.md).
+
 ## Sign-in and playback
 
 - Apple Music account: required for catalog, library, and playback.
@@ -102,8 +105,8 @@ Per-push and pull-request compile checks:
 Release builds are manual only:
 
 - **Actions → release-build → Run workflow**.
-- Builds Android APK, Linux tarball, Windows zip, macOS app zip, and an unsigned
-  iOS app zip.
+- Builds Android APK, Linux tarball, Windows zip, macOS app zip, an unsigned
+  iOS app zip, and the Linux `sosumi-token` service binary.
 - Artifacts are retained for 7 days.
 - Android release currently uses the generated debug signing config; replace it
   with a real keystore before distributing.

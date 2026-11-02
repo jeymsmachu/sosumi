@@ -21,6 +21,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  token-service:
+    name: release · token service
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          save-if: false
+
+      - name: Build token service
+        run: cargo build --release -p sosumi-token --locked
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sosumi-${{ inputs.version }}-token-service-linux-x64
+          path: target/release/sosumi-token
+          if-no-files-found: error
+          retention-days: 7
+
   android:
     name: release · android
     runs-on: ubuntu-latest
