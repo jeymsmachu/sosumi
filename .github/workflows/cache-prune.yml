@@ -1,0 +1,53 @@
+name: cache-prune
+
+on:
+  schedule:
+    # Weekly, Monday 04:00 UTC.
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  prune:
+    name: keep caches under 8 GiB
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete least-recently-used caches above budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE_BUDGET_BYTES: '8589934592'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          caches="$(mktemp)"
+          trap 'rm -f "$caches"' EXIT
+
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
+            --jq '.actions_caches[] | [.id, .size_in_bytes, .last_accessed_at, .key] | @tsv' \
+            > "$caches" || true
+
+          if [[ ! -s "$caches" ]]; then
+            echo "No caches found."
+            exit 0
+          fi
+
+          total="$(awk -F '\t' '{ sum += $2 } END { print sum + 0 }' "$caches")"
+          echo "Total cache: ${total} bytes; budget: ${CACHE_BUDGET_BYTES} bytes."
+
+          while IFS=$'\t' read -r id size accessed key; do
+            if (( total <= CACHE_BUDGET_BYTES )); then
+              break
+            fi
+            echo "Deleting ${id} (${size} bytes, last accessed ${accessed}): ${key}"
+            gh api -X DELETE \
+              "repos/${GITHUB_REPOSITORY}/actions/caches/${id}" >/dev/null
+            total=$(( total - size ))
+          done < <(sort -t $'\t' -k3,3 "$caches")
+
+          echo "Cache total after prune: ${total} bytes."
