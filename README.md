@@ -40,15 +40,19 @@ platform boundary; they do not add a third application codebase.
 
 ## Core
 
-The Rust crate owns catalog-independent state:
+The Rust crate owns catalog-independent state and the Apple Music backend:
 
+- typed catalog/library models
 - queue and repeat behavior
 - playback capabilities and audio-variant labels
-- shared track/capability models
+- Apple Music REST client: search, albums, artists, playlists, library, recent
+  plays, and timed lyrics
+- ES256 developer-token signing and session packaging
 - a serializable snapshot for the future Dart bridge
 
 It deliberately has no dependency on Apple frameworks, Flutter, or DRM.
-Platform playback and DRM stay in the platform adapters.
+Platform playback and DRM stay in the platform adapters. See
+[docs/backend.md](docs/backend.md).
 
 ## Sign-in and playback
 

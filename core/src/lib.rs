@@ -10,6 +10,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod apple;
 pub mod error;
 pub mod model;
 pub mod queue;
