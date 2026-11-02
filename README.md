@@ -53,6 +53,14 @@ sosumi/
 | Android TV | Compatibility playback path, ARM |
 | Windows | MusicKit on the Web sidecar, with handoff to the official app for lossless/Atmos |
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+This license covers only the source in this repository. It grants no rights to
+Apple's software, content, services, or trademarks, or to any proprietary
+components obtained separately by the user.
+
 ## Disclaimer
 
 This project is independent and unaffiliated with Apple Inc. "Apple Music" and
