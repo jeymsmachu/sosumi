@@ -1,0 +1,38 @@
+# Rust
+/target/
+**/target/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+**/build/
+*.iml
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Secrets and signing material
+.env
+.env.*
+*.p8
+*.p12
+*.pfx
+*.mobileprovision
+*.keystore
+*.jks
+
+# Proprietary Apple / DRM components
+# These are obtained locally and must never be committed.
+**/fairplay-libs/
+**/rootfs/
+**/WidevineCdm/
+**/*.aar
+
+# Local runtime data
+**/local-data/
+**/logs/
