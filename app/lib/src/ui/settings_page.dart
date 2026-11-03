@@ -193,7 +193,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 28),
                     Text(
-                      'sosumi 0.1.0',
+                      'sosumi 0.2.0',
                       style: theme.textTheme.bodySmall,
                       textAlign: TextAlign.center,
                     ),
