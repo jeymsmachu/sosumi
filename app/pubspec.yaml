@@ -10,7 +10,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_rust_bridge: 2.13.0
   liquid_glass_widgets: ^1.16.1
+  sosumi_core:
+    path: rust_builder
 
 dev_dependencies:
   flutter_test:

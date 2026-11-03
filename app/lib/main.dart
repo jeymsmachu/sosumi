@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'src/app.dart';
+import 'src/rust/api/sosumi.dart';
+import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await RustLib.init();
+  debugPrint('sosumi core ${coreVersion()}');
   await LiquidGlassWidgets.initialize();
   runApp(const SosumiRoot());
 }

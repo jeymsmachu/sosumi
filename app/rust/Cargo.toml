@@ -1,0 +1,17 @@
+[package]
+name = "sosumi_bridge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "sosumi_bridge"
+crate-type = ["cdylib", "staticlib"]
+
+[workspace]
+
+[dependencies]
+flutter_rust_bridge = "=2.13.0"
+sosumi-core = { path = "../../core" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

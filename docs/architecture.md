@@ -43,6 +43,26 @@ The core is intentionally independent of Apple frameworks, Flutter, and DRM.
 Playback adapters will translate platform events into this model; the core does
 not learn how DRM works.
 
+## Flutter bridge
+
+- `app/rust/` is the small `flutter_rust_bridge` adapter crate. It exposes
+  track/album/artist/playlist DTOs and async search, library, recent, and lyrics
+  calls.
+- `app/rust_builder/` is the Cargokit build plugin that compiles the adapter for
+  each Flutter platform.
+- `app/lib/src/rust/` is generated Dart. Do not hand-edit it.
+- `RustLib.init()` runs before `runApp()` in `app/lib/main.dart`.
+
+Regenerate bindings after changing the bridge API:
+
+```sh
+cd app
+flutter_rust_bridge_codegen generate
+```
+
+The bridge adapter depends on `core/`; it does not duplicate Apple Music API
+logic.
+
 ## Playback adapters (next)
 
 | Platform | Adapter |

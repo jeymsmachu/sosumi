@@ -54,6 +54,10 @@ It deliberately has no dependency on Apple frameworks, Flutter, or DRM.
 Platform playback and DRM stay in the platform adapters. See
 [docs/backend.md](docs/backend.md).
 
+The Flutter bridge lives in `app/rust` (FRB adapter) with Cargokit build glue in
+`app/rust_builder`. Generated Dart is in `app/lib/src/rust`; `RustLib.init()`
+runs before the app starts. See [docs/architecture.md](docs/architecture.md).
+
 The deployment-owned token minter lives in `services/token` and is documented in
 [docs/token-service.md](docs/token-service.md).
 
