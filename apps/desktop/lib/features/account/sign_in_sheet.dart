@@ -83,18 +83,23 @@ class _SignInSheetState extends ConsumerState<SignInSheet> {
               const SizedBox(height: Insets.md),
               _Explanation(step: _step),
               const SizedBox(height: Insets.lg),
-              if (_step == _Step.code) _CodeField(controller: _code)
-              else ...[
+              // The fields are dropped once the credentials are submitted. Leaving
+              // them on screen during the wait keeps a typed password visible for
+              // no reason, and there is nothing to edit while the call is in
+              // flight.
+              if (_step == _Step.code)
+                _CodeField(controller: _code)
+              else if (_step == _Step.credentials) ...[
                 _Field(
                   controller: _email,
                   hint: 'Apple ID',
-                  enabled: _step == _Step.credentials,
+                  enabled: true,
                 ),
                 const SizedBox(height: Insets.sm),
                 _Field(
                   controller: _password,
                   hint: 'Password',
-                  enabled: _step == _Step.credentials,
+                  enabled: true,
                   obscure: _obscure,
                   onToggleObscure: () => setState(() => _obscure = !_obscure),
                 ),

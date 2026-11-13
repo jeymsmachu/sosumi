@@ -131,13 +131,8 @@ fn build_session(native: &Path, session: &Path, session_c: &[&str], session_cxx:
     // mapped onto the embedded loader's `aml_` equivalent by `android_shim.c`,
     // and every mapping is required: a missing one leaves the symbol undefined,
     // which the linker reports only at load time.
-    let mut common: Vec<(&str, Option<&str>)> =
-        vec![("DRM_LIB_BUILD", None), ("MyRelease", None)];
-    common.extend(
-        ANDROID_SHIM_MAPPINGS
-            .iter()
-            .map(|(android, shim)| (*android, Some(*shim))),
-    );
+    let mut common: Vec<(&str, Option<&str>)> = vec![("DRM_LIB_BUILD", None), ("MyRelease", None)];
+    common.extend(ANDROID_SHIM_MAPPINGS.iter().map(|(android, shim)| (*android, Some(*shim))));
 
     let quiet = [
         "-Wno-unused-variable",
@@ -238,12 +233,8 @@ fn assert_every_android_call_is_mapped(session: &Path, sources: &[&str]) {
 ///
 /// Kept beside [`ANDROID_SHIM_MAPPINGS`] deliberately: adding a call to the
 /// wrapper means adding it here, which is the prompt to add its mapping too.
-const ANDROID_LOADER_CALLS: [&str; 4] = [
-    "android_dlopen",
-    "android_dlsym",
-    "android_dlerror",
-    "android_update_LD_LIBRARY_PATH",
-];
+const ANDROID_LOADER_CALLS: [&str; 4] =
+    ["android_dlopen", "android_dlsym", "android_dlerror", "android_update_LD_LIBRARY_PATH"];
 
 /// Builds the three Android stub libraries and embeds them as bytes.
 ///

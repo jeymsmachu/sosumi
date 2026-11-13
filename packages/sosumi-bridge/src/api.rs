@@ -249,10 +249,6 @@ impl SignInEventDto {
             }
         }
     }
-
-    fn failed(message: &str) -> Self {
-        Self { kind: "failed".into(), message: Some(message.to_owned()) }
-    }
 }
 
 /// One optional capability, as the Settings screen renders it.
@@ -391,10 +387,15 @@ impl From<CoreEvent> for EventDto {
 pub struct Engine {
     inner: Arc<Sosumi>,
     runtime: tokio::runtime::Runtime,
-    /// The in-flight native sign-in, when there is one.
+    /// A long-lived channel of sign-in progress.
     ///
-    /// Held so a second `begin_sign_in` replaces an abandoned attempt rather than
-    /// racing it, and so a code can be submitted to the attempt that asked.
+    /// Owned by the engine rather than by an attempt, so a subscriber cannot bind
+    /// to the wrong attempt. Subscribing before starting is the natural order, and
+    /// an attempt-scoped channel made that order lose every event: the
+    /// subscription attached to nothing, then the attempt reported into a channel
+    /// with no listeners, and the UI waited forever.
+    sign_in_events: tokio::sync::broadcast::Sender<CoreSignInEvent>,
+    /// The in-flight native sign-in, when there is one.
     sign_in: parking_lot::RwLock<Option<Arc<SignIn>>>,
 }
 
@@ -456,7 +457,16 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
         }
     }
 
-    Ok(Engine { inner: Arc::new(app), runtime, sign_in: parking_lot::RwLock::new(None) })
+    // Sized for the handful of events one attempt emits, with slack for a
+    // subscriber that is briefly slow.
+    let (sign_in_events, _) = tokio::sync::broadcast::channel(32);
+
+    Ok(Engine {
+        inner: Arc::new(app),
+        runtime,
+        sign_in_events,
+        sign_in: parking_lot::RwLock::new(None),
+    })
 }
 
 /// Locates the runtime manifest and resolves the payload layout.
@@ -857,7 +867,7 @@ impl Engine {
         })?;
 
         let layout = runtime.layout().clone();
-        let sign_in = SignIn::begin(layout, email, password)?;
+        let sign_in = SignIn::begin(layout, email, password, self.sign_in_events.clone())?;
 
         *self.sign_in.write() = Some(Arc::new(sign_in));
         Ok(())
@@ -873,18 +883,27 @@ impl Engine {
     ///
     /// Fails when no sign-in is in progress.
     pub fn watch_sign_in(&self, sink: StreamSink<SignInEventDto>) {
-        let Some(sign_in) = self.sign_in.read().clone() else {
-            let _ = sink.add(SignInEventDto::failed("No sign-in is in progress"));
-            return;
-        };
-
-        let mut events = sign_in.subscribe();
+        // Subscribes to the engine's channel, which exists whether or not an
+        // attempt is running. That makes the call safe in any order: a
+        // subscription made before the start receives the events of the attempt
+        // that follows, which is the order the UI naturally uses.
+        let mut events = self.sign_in_events.subscribe();
         self.runtime.spawn(async move {
-            while let Ok(event) = events.recv().await {
-                let terminal =
-                    matches!(event, CoreSignInEvent::Succeeded | CoreSignInEvent::Failed { .. });
-                if sink.add(SignInEventDto::from(event)).is_err() || terminal {
-                    break;
+            loop {
+                match events.recv().await {
+                    Ok(event) => {
+                        let terminal = matches!(
+                            event,
+                            CoreSignInEvent::Succeeded | CoreSignInEvent::Failed { .. }
+                        );
+                        if sink.add(SignInEventDto::from(event)).is_err() || terminal {
+                            break;
+                        }
+                    }
+                    // A lagged subscriber rejoins at the oldest retained event,
+                    // which for a short stream is the whole stream.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
         });

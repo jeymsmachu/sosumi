@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `attach_runtime`, `block_on`, `default_music_directories`, `discover_manifest`, `failed`, `from_provider`, `from_report`, `from`, `machine_sealer`, `parse_quality`, `parse_repeat`
+// These functions are ignored because they are not marked as `pub`: `attach_runtime`, `block_on`, `default_music_directories`, `discover_manifest`, `from_provider`, `from_report`, `from`, `machine_sealer`, `parse_quality`, `parse_repeat`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Builds the engine. The UI calls this once, at startup.

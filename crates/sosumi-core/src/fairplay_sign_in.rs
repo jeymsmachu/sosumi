@@ -70,26 +70,45 @@ enum Answer {
 
 /// The handler the C library calls, backed by a channel the UI feeds.
 ///
-/// `answer` blocks until the UI replies, which is what the C library expects. The
-/// block is on the worker thread, never on the UI thread.
+/// # What the C library actually asks for
+///
+/// In practice, only **2FA**. The email and password come from the config and the
+/// C code reads them directly, so a credentials challenge normally never reaches
+/// this handler. That matters a great deal: a handler that blocked waiting for an
+/// answer to a credentials challenge would wait forever, because the UI has no
+/// reason to send one. The symptom is a sign-in that hangs with a turning spinner
+/// and no error.
+///
+/// So credentials are answered immediately from what the worker already holds, and
+/// only 2FA blocks on the channel.
 struct ChannelHandler {
     answers: Mutex<Receiver<Answer>>,
     events: broadcast::Sender<SignInEvent>,
+    /// Held so a credentials challenge can be answered without waiting for the UI.
+    username: String,
+    password: String,
 }
 
 impl ChannelHandler {
     fn ask(&self, challenge: AuthChallenge) -> Option<String> {
-        if challenge == AuthChallenge::TwoFactor {
-            // Emitted before blocking, so the field is on screen by the time the
-            // user could possibly type into it.
-            let _ = self.events.send(SignInEvent::CodeRequired);
-        }
+        match challenge {
+            // The reply format is `email\0password`, NUL-separated. A colon would
+            // be sent to Apple as a malformed password, and Apple counts wrong
+            // passwords, so an incorrect separator would burn attempts.
+            AuthChallenge::Credentials => Some(format!("{}\0{}", self.username, self.password)),
+            AuthChallenge::TwoFactor => {
+                // Emitted before blocking, so the field is on screen by the time
+                // the user could possibly type into it.
+                let _ = self.events.send(SignInEvent::CodeRequired);
 
-        // Blocks the worker until the UI answers. A closed channel means the app
-        // is shutting down, so `None` abandons the attempt rather than hanging.
-        match self.answers.lock().recv() {
-            Ok(Answer::Code(code)) => Some(code),
-            Ok(Answer::Abandon) | Err(_) => None,
+                // Blocks the worker until the UI answers. A closed channel means
+                // the app is shutting down, so `None` abandons the attempt rather
+                // than hanging.
+                match self.answers.lock().recv() {
+                    Ok(Answer::Code(code)) => Some(code),
+                    Ok(Answer::Abandon) | Err(_) => None,
+                }
+            }
         }
     }
 }
@@ -103,7 +122,6 @@ impl ChallengeHandler for ChannelHandler {
 /// A sign-in in progress, or the record of the last one.
 pub struct SignIn {
     answers: Sender<Answer>,
-    events: broadcast::Sender<SignInEvent>,
     /// `None` once the worker has finished, which is how completion is detected.
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     /// True while a worker is running, so a second sign-in is refused rather than
@@ -113,9 +131,7 @@ pub struct SignIn {
 
 impl std::fmt::Debug for SignIn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SignIn")
-            .field("running", &*self.running.lock())
-            .finish_non_exhaustive()
+        f.debug_struct("SignIn").field("running", &*self.running.lock()).finish_non_exhaustive()
     }
 }
 
@@ -125,49 +141,57 @@ impl SignIn {
     /// `username` and `password` are the account credentials. They are moved into
     /// the worker and dropped when the call returns.
     ///
+    /// `events` is where progress is reported. The caller owns that channel
+    /// rather than the attempt, and that is deliberate: an attempt-scoped channel
+    /// forces a subscriber to know which attempt it is listening to, so a
+    /// subscription made before the start — the natural order — attaches to the
+    /// wrong one, or to none, and the UI waits forever on events that go
+    /// somewhere else. A channel the caller holds has no such ordering hazard.
+    ///
     /// # Errors
     ///
     /// Returns [`SignInError::AlreadyInitialised`] when a sign-in is already
     /// running. The C library documents its init as callable once, and two
     /// concurrent attempts would corrupt the lease rather than fail cleanly.
+    // Takes the sender by value because the worker needs its own handle while the
+    // caller keeps one to subscribe with. Passing by reference would work but
+    // reads as though the sender were borrowed for one call, which it is not.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn begin(
         layout: RuntimeLayout,
         username: String,
         password: String,
+        events: broadcast::Sender<SignInEvent>,
     ) -> Result<Self, SignInError> {
         let running = Arc::new(Mutex::new(true));
         let running_for_worker = Arc::clone(&running);
 
         let (answer_tx, answer_rx) = std::sync::mpsc::channel();
-        let (event_tx, _) = broadcast::channel(16);
-        let events_for_worker = event_tx.clone();
-        let events_for_handler = event_tx.clone();
 
+        let events_for_worker = events.clone();
         let worker = std::thread::Builder::new()
             .name("sosumi-fairplay-signin".to_owned())
             .spawn(move || {
+                // The handler owns the credentials, so they live exactly as long
+                // as the attempt. Building it first also means `run_sign_in` reads
+                // them from one place rather than being handed them twice.
+                let handler = ChannelHandler {
+                    answers: Mutex::new(answer_rx),
+                    events: events_for_worker.clone(),
+                    username,
+                    password,
+                };
+
                 // The whole login runs here, including the blocking callbacks.
-                let outcome = run_sign_in(
-                    &layout,
-                    &username,
-                    &password,
-                    ChannelHandler { answers: Mutex::new(answer_rx), events: events_for_handler },
-                    &events_for_worker,
-                );
+                let outcome = run_sign_in(&layout, handler, &events_for_worker);
                 let _ = events_for_worker.send(outcome);
                 *running_for_worker.lock() = false;
-                // `password` is dropped here, at the end of its only scope.
+                // The handler is dropped here, which drops the password with it.
             })
             .map_err(|e| SignInError::Bridge(format!("starting the sign-in worker: {e}")))?;
 
-        let _ = event_tx.send(SignInEvent::Started);
-        Ok(Self { answers: answer_tx, events: event_tx, worker: Mutex::new(Some(worker)), running })
-    }
-
-    /// Subscribes to progress events.
-    #[must_use]
-    pub fn subscribe(&self) -> broadcast::Receiver<SignInEvent> {
-        self.events.subscribe()
+        let _ = events.send(SignInEvent::Started);
+        Ok(Self { answers: answer_tx, worker: Mutex::new(Some(worker)), running })
     }
 
     /// Supplies the verification code the bridge is waiting for.
@@ -217,11 +241,16 @@ impl Drop for SignIn {
 /// The worker's body: load the libraries, then sign in.
 fn run_sign_in(
     layout: &RuntimeLayout,
-    username: &str,
-    password: &str,
     handler: ChannelHandler,
     events: &broadcast::Sender<SignInEvent>,
 ) -> SignInEvent {
+    // Read the credentials before the handler is moved into the session, because
+    // `sign_in` needs them and the handler owns them. Cloning two short strings
+    // once per attempt is cheaper than threading them through the C callback
+    // contract separately.
+    let username = handler.username.clone();
+    let password = handler.password.clone();
+
     let session = match Session::new(Box::new(handler)) {
         Ok(session) => session,
         Err(error) => {
@@ -247,7 +276,7 @@ fn run_sign_in(
 
     let _ = events.send(SignInEvent::Preparing);
 
-    match session.sign_in(layout, Some(username), Some(password)) {
+    match session.sign_in(layout, Some(&username), Some(&password)) {
         Ok(()) => SignInEvent::Succeeded,
         Err(SignInError::Unanswered) => {
             SignInEvent::Failed { message: "Sign-in was cancelled.".to_owned() }
@@ -294,10 +323,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn credentials_are_answered_immediately_in_the_nul_separated_format() {
+        // Two things are pinned here, and both matter.
+        //
+        // First: a credentials challenge must not block. Nothing sends an answer
+        // for one, so a handler that waited would hang the sign-in with a turning
+        // spinner and no error — which is exactly what it did before this test
+        // existed.
+        //
+        // Second: the reply format is `email\0password`. A colon would reach Apple
+        // as a malformed password, and Apple counts wrong passwords, so the
+        // separator is not a detail to guess at.
+        let (_tx, rx) = std::sync::mpsc::channel::<Answer>();
+        let (events, _) = broadcast::channel(8);
+        let handler = ChannelHandler {
+            answers: Mutex::new(rx),
+            events,
+            username: "person@example.com".to_owned(),
+            password: "hunter2".to_owned(),
+        };
+
+        // Would hang here if the credentials path blocked.
+        let reply = handler.answer(AuthChallenge::Credentials).expect("an answer");
+
+        assert_eq!(reply, "person@example.com\0hunter2");
+        assert!(reply.contains('\0'), "the separator must be NUL, not a colon");
+        assert!(!reply.contains(':'), "a colon would be sent to Apple as a wrong password");
+    }
+
+    #[test]
     fn a_channel_handler_blocks_until_answered() {
         let (tx, rx) = std::sync::mpsc::channel();
         let (events, _) = broadcast::channel(8);
-        let handler = ChannelHandler { answers: Mutex::new(rx), events };
+        let handler = ChannelHandler {
+            answers: Mutex::new(rx),
+            events,
+            username: "user@example.com".to_owned(),
+            password: "secret".to_owned(),
+        };
 
         // Answer from another thread, as the UI would.
         let responder = std::thread::spawn(move || {
@@ -314,7 +377,12 @@ mod tests {
     fn an_abandoned_challenge_returns_nothing() {
         let (tx, rx) = std::sync::mpsc::channel();
         let (events, _) = broadcast::channel(8);
-        let handler = ChannelHandler { answers: Mutex::new(rx), events };
+        let handler = ChannelHandler {
+            answers: Mutex::new(rx),
+            events,
+            username: "user@example.com".to_owned(),
+            password: "secret".to_owned(),
+        };
 
         let responder = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -331,7 +399,12 @@ mod tests {
     fn a_dropped_sender_abandons_rather_than_hanging() {
         let (tx, rx) = std::sync::mpsc::channel::<Answer>();
         let (events, _) = broadcast::channel(8);
-        let handler = ChannelHandler { answers: Mutex::new(rx), events };
+        let handler = ChannelHandler {
+            answers: Mutex::new(rx),
+            events,
+            username: "user@example.com".to_owned(),
+            password: "secret".to_owned(),
+        };
 
         // The UI going away must not leave the worker blocked forever.
         drop(tx);
@@ -342,7 +415,12 @@ mod tests {
     fn the_code_required_event_arrives_before_the_handler_blocks() {
         let (tx, rx) = std::sync::mpsc::channel();
         let (events, mut listener) = broadcast::channel(8);
-        let handler = ChannelHandler { answers: Mutex::new(rx), events };
+        let handler = ChannelHandler {
+            answers: Mutex::new(rx),
+            events,
+            username: "user@example.com".to_owned(),
+            password: "secret".to_owned(),
+        };
 
         let responder = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -361,7 +439,12 @@ mod tests {
     fn credentials_do_not_raise_a_code_prompt() {
         let (tx, rx) = std::sync::mpsc::channel();
         let (events, mut listener) = broadcast::channel(8);
-        let handler = ChannelHandler { answers: Mutex::new(rx), events };
+        let handler = ChannelHandler {
+            answers: Mutex::new(rx),
+            events,
+            username: "user@example.com".to_owned(),
+            password: "secret".to_owned(),
+        };
 
         let responder = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(50));
