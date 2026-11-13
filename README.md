@@ -38,6 +38,18 @@ than building from `main` if you want something that runs.
   repository contains no circumvention code, no extracted CDMs, and no Apple
   binaries.
 
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit and why |
+| [PROVIDERS.md](docs/PROVIDERS.md) | The provider contract and how to add one |
+| [SECURITY.md](docs/SECURITY.md) | Threat model and key handling |
+| [PRIVACY.md](docs/PRIVACY.md) | What leaves the machine, and what does not |
+| [PERFORMANCE.md](docs/PERFORMANCE.md) | The budget and how to measure it |
+| [LEGAL-SCOPE.md](docs/LEGAL-SCOPE.md) | What this project does and does not do |
+| [adr/](docs/adr/README.md) | Decisions that are expensive to reverse |
+
 ## Capabilities
 
 Sosumi is built so the core application never hard-depends on anything optional.

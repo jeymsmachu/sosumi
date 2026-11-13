@@ -83,32 +83,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Check relative documentation links resolve
-        run: |
-          set -euo pipefail
-          status=0
-          while IFS= read -r link; do
-            target="${link%%#*}"
-            [ -z "$target" ] && continue
-            case "$target" in
-              http*|mailto:*) continue ;;
-            esac
-            if [ ! -e "$target" ]; then
-              echo "::error::broken documentation link: $link"
-              status=1
-            fi
-          done < <(
-            grep -rhoE '\]\([^)]+\.md(#[^)]*)?\)' docs README.md CONTRIBUTING.md \
-              | sed -E 's/^\]\(//; s/\)$//' | sort -u
-          )
-          exit "$status"
-      - name: Every adr is linked from the index
+      - name: Check documentation links resolve
+        run: ./scripts/check-docs-links.sh
+      - name: Every ADR is listed in its index
         run: |
           set -euo pipefail
           for adr in docs/adr/[0-9]*.md; do
             name=$(basename "$adr")
-            grep -q "$name" docs/adr/README.md || {
-              echo "::error::$adr is not listed in docs/adr/README.md"
+            if ! grep -q "$name" docs/adr/README.md; then
+              echo "::error::${adr} is not listed in docs/adr/README.md"
               exit 1
-            }
+            fi
           done
