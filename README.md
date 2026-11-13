@@ -48,6 +48,7 @@ than building from `main` if you want something that runs.
 | [PRIVACY.md](docs/PRIVACY.md) | What leaves the machine, and what does not |
 | [PERFORMANCE.md](docs/PERFORMANCE.md) | The budget and how to measure it |
 | [LEGAL-SCOPE.md](docs/LEGAL-SCOPE.md) | What this project does and does not do |
+| [PLATFORM-LIMITS.md](docs/PLATFORM-LIMITS.md) | What cannot work on some systems, measured, and why |
 | [adr/](docs/adr/README.md) | Decisions that are expensive to reverse |
 
 ## Capabilities

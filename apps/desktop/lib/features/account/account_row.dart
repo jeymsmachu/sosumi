@@ -228,6 +228,15 @@ Future<void> showSignIn(BuildContext context, WidgetRef ref) async {
     case SignInCancelled():
       // Nothing to say: the user changed their mind.
       break;
+    case SignInUnavailable(:final reason, :final detail):
+      // A limitation of the environment, not a mistake by the user, so it is
+      // explained rather than reported as an error.
+      if (context.mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => _SignInUnavailable(reason: reason, detail: detail),
+        );
+      }
     case SignInFailed(:final message):
       messenger?.showSnackBar(
         SnackBar(
@@ -235,6 +244,83 @@ Future<void> showSignIn(BuildContext context, WidgetRef ref) async {
           behavior: SnackBarBehavior.floating,
         ),
       );
+  }
+}
+
+/// Explains an environment that cannot complete sign-in.
+///
+/// The reason matters. A user who has just typed a correct password and a
+/// correct verification code and then sees "Authorization failed" will assume
+/// they typed something wrong, and will try again, and again. Saying plainly
+/// that the engine cannot do it, and what to use instead, respects their time.
+class _SignInUnavailable extends StatelessWidget {
+  const _SignInUnavailable({required this.reason, required this.detail});
+
+  final String reason;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: GlassSurface(
+          radius: Radii.panel,
+          blur: 44,
+          fill: palette.elevatedGlass,
+          padding: const EdgeInsets.all(Insets.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, size: 18, color: palette.textSecondary),
+                  const SizedBox(width: Insets.sm),
+                  Text('Sign-in is unavailable here',
+                      style: TextStyles.title3.copyWith(color: palette.textPrimary)),
+                ],
+              ),
+              const SizedBox(height: Insets.md),
+              Text(reason, style: TextStyles.body.copyWith(color: palette.textSecondary)),
+              const SizedBox(height: Insets.md),
+              Text(
+                'Apple\u2019s sign-in page registers a protected-media key system as part '
+                'of starting up. WebKitGTK, the engine this app embeds, is built '
+                'without that support on most distributions, so the page cannot '
+                'finish. This is an engine limitation, not a problem with your '
+                'account or your password.',
+                style: TextStyles.caption1.copyWith(color: palette.textTertiary),
+              ),
+              const SizedBox(height: Insets.lg),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: palette.accent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(Radii.small),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Insets.lg,
+                        vertical: Insets.md,
+                      ),
+                    ),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -24,38 +24,56 @@ final class SignInCancelled extends SignInResult {
   const SignInCancelled();
 }
 
-/// The sign-in window could not be opened, or the session could not be read.
+/// Sign-in cannot complete on this machine, with a reason worth showing.
+///
+/// This is distinct from [SignInCancelled] and from a transient error: it means
+/// the environment lacks something Apple's page requires, and no amount of
+/// retrying will help.
+final class SignInUnavailable extends SignInResult {
+  const SignInUnavailable(this.reason, this.detail);
+
+  /// One short line for the interface.
+  final String reason;
+
+  /// What exactly is missing, for the log and for a curious user.
+  final String detail;
+}
+
+/// The sign-in window could not be opened or driven.
 final class SignInFailed extends SignInResult {
   const SignInFailed(this.message);
 
   final String message;
 }
 
-/// Apple ID sign-in, hosted in a web view.
+/// Apple ID sign-in, hosted in Apple's own page.
 ///
-/// This hosts **Apple's own** sign-in page rather than reimplementing account
-/// authentication. That is the only correct approach, for three reasons in order
-/// of importance:
+/// # Why Apple's page and not a form of our own
 ///
-/// 1. **Security.** The user types their Apple ID password into Apple's page,
-///    over Apple's TLS, in a page Apple controls. Sosumi never sees it, never
-///    stores it, and never handles it. A reimplemented form would mean this code
-///    touching a password, which it should never do.
-/// 2. **Two-factor authentication.** Apple's flow prompts for a verification
-///    code on the user's trusted devices and handles the retry, the expiry, and
-///    the trusted-device choice. Reproducing that state machine is a large
-///    surface, and getting it wrong locks people out of their own accounts.
-/// 3. **Correctness under change.** When Apple changes its sign-in, their page
-///    changes and this keeps working. A reimplemented flow breaks silently.
+/// The user types their Apple ID password into Apple's page, over Apple's TLS,
+/// in a page Apple controls. Sosumi never sees it, never stores it, and never
+/// handles it. Apple's two-factor step happens on Apple's page too, so there is
+/// no state machine here to reproduce and nothing to get wrong. When Apple
+/// changes its sign-in, their page changes and this keeps working.
 ///
-/// What Sosumi reads afterwards is the `media-user-token` cookie, which is the
-/// subscriber token the API expects. That is not a credential being extracted:
-/// it identifies a session the user just authorised in Apple's own interface,
-/// exactly as a browser would carry it forward. The password itself never
-/// reaches this code.
+/// # Why the engine has to support Encrypted Media
 ///
-/// Verified before building on it: WebKitGTK loads `music.apple.com`, renders the
-/// web player, and sets the `media-user-token` cookie.
+/// Apple's page is not a plain form. It loads MusicKit on the Web, which
+/// registers a DRM key system as part of starting up. MusicKit asks the engine
+/// for `com.widevine.alpha`, `com.apple.fps`, or `com.microsoft.playready` via
+/// `navigator.requestMediaKeySystemAccess`. If the engine has no Encrypted Media
+/// support, that call does not exist, MusicKit's initialization fails, and Apple
+/// shows **"Authorization failed. Please log in to enjoy Apple Music."** — an
+/// error about MusicKit, not about the password or the verification code the
+/// user just entered correctly.
+///
+/// That is exactly the failure this code now detects *before* the user types
+/// anything, so nobody is asked to enter a password into a page that cannot
+/// finish.
+///
+/// WebKitGTK as distributions build it has Encrypted Media disabled at compile
+/// time, so this is the common case on Linux rather than an edge case. See
+/// `docs/PLATFORM-LIMITS.md`.
 abstract final class AppleSignIn {
   /// The host the sign-in page and the web player share.
   static const _host = 'music.apple.com';
@@ -63,15 +81,37 @@ abstract final class AppleSignIn {
   /// How long to wait for the session cookie after the redirect lands.
   static const _cookieSettleDelay = Duration(milliseconds: 1500);
 
+  /// How long to give the page before probing its capabilities.
+  static const _probeDelay = Duration(milliseconds: 1200);
+
+  /// Asks the engine whether it can resolve a DRM key system.
+  ///
+  /// Returns `null` when the engine advertises Encrypted Media, or a
+  /// human-readable reason when it does not.
+  static const _probeScript = '''
+    (function () {
+      if (typeof navigator.requestMediaKeySystemAccess !== 'function') {
+        return 'no-api';
+      }
+      if (typeof window.MediaKeys !== 'function') {
+        return 'no-mediakeys';
+      }
+      return null;
+    })()
+  ''';
+
   /// Opens Apple's sign-in page and waits for the session cookie.
   ///
   /// Never throws: every outcome is a [SignInResult], because a closed window is
-  /// a cancellation and a missing runtime is a message, not a crash.
+  /// a cancellation and a missing engine capability is a message, not a crash.
   static Future<SignInResult> run() async {
     final Webview webview;
     try {
       if (!await WebviewWindow.isWebviewAvailable()) {
-        return const SignInFailed('No web view runtime is available on this system.');
+        return const SignInUnavailable(
+          'No web view is available on this system.',
+          'The desktop web view runtime could not be found.',
+        );
       }
       webview = await WebviewWindow.create(
         // A sheet-sized window, so sign-in reads as part of the app rather than
@@ -97,6 +137,7 @@ abstract final class AppleSignIn {
 
     final completer = Completer<SignInResult>();
     var completed = false;
+    var probed = false;
 
     void finish(SignInResult result) {
       if (completed) return;
@@ -104,9 +145,27 @@ abstract final class AppleSignIn {
       if (!completer.isCompleted) completer.complete(result);
     }
 
-    // Sign-in ends when navigation reaches the web player, which only happens
-    // once Apple has established the session.
     await webview.setOnUrlRequestCallback((url) {
+      // Probe once, as soon as Apple's page is up. Doing it before the user
+      // types means nobody enters a password into a form that cannot complete.
+      if (!probed && url.contains(_host)) {
+        probed = true;
+        unawaited(() async {
+          await Future<void>.delayed(_probeDelay);
+          final missing = await _probeEncryptedMedia(webview);
+          if (missing != null) {
+            finish(SignInUnavailable(
+              'Signing in needs a browser engine with protected-media support, '
+              'which this system\u2019s web view does not have.',
+              'navigator.requestMediaKeySystemAccess reported: $missing',
+            ));
+            await webview.close();
+          }
+        }());
+      }
+
+      // Sign-in ends when navigation reaches the web player, which only happens
+      // once Apple has established the session.
       if (url.contains(_host) && !url.contains('/signin') && !url.contains('/login')) {
         unawaited(() async {
           await Future<void>.delayed(_cookieSettleDelay);
@@ -132,6 +191,22 @@ abstract final class AppleSignIn {
     }
 
     return completer.future;
+  }
+
+  /// Evaluates the capability script in the page.
+  ///
+  /// Returns `null` when the engine supports Encrypted Media, or the reported
+  /// reason when it does not, or when the probe itself could not run — a probe
+  /// that cannot answer must not be treated as a pass.
+  static Future<String?> _probeEncryptedMedia(Webview webview) async {
+    try {
+      final result = await webview.evaluateJavaScript(_probeScript);
+      final value = result?.toString();
+      if (value == null || value == 'null') return null;
+      return value;
+    } on Object catch (error) {
+      return 'probe could not run ($error)';
+    }
   }
 
   /// Reads one cookie by name from the web view's store.
