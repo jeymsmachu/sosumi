@@ -1,0 +1,12 @@
+# flutter_rust_bridge v2 codegen configuration.
+#
+# `rust_input` names the module holding the #[frb] items; everything reachable
+# from it is generated. `dart_output` is resolved relative to `rust_root`, which
+# is this crate.
+#
+# The generated bindings are committed so a build needs no codegen toolchain.
+# CI regenerates them and fails if the result differs, which catches a change to
+# src/api.rs that was not regenerated.
+rust_input: crate::api
+rust_root: .
+dart_output: ../../apps/desktop/lib/rust

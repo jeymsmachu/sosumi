@@ -214,6 +214,33 @@ impl Sosumi {
         self.events.publish(Event::QueueChanged { length: self.queue.read().len() });
     }
 
+    /// Sets the repeat mode.
+    pub fn set_repeat(&self, mode: crate::queue::RepeatMode) {
+        self.queue.write().set_repeat(mode);
+    }
+
+    /// The repeat mode.
+    #[must_use]
+    pub fn repeat(&self) -> crate::queue::RepeatMode {
+        self.queue.read().repeat()
+    }
+
+    /// Enables or disables shuffle.
+    pub fn set_shuffled(&self, shuffled: bool) {
+        let mut queue = self.queue.write();
+        if shuffled {
+            queue.shuffle();
+        } else {
+            queue.unshuffle();
+        }
+    }
+
+    /// True when shuffle is on.
+    #[must_use]
+    pub fn is_shuffled(&self) -> bool {
+        self.queue.read().is_shuffled()
+    }
+
     /// The current track in the queue.
     #[must_use]
     pub fn current_track(&self) -> Option<TrackId> {

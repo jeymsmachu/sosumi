@@ -1,0 +1,28 @@
+[package]
+name = "sosumi-bridge"
+description = "The single FFI surface between the Flutter UI and the Rust core."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+# The crate is an rlib for the Dart bridge and a cdylib for the Flutter loader.
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+sosumi-core.workspace = true
+sosumi-diagnostics.workspace = true
+sosumi-provider-api.workspace = true
+sosumi-security.workspace = true
+sosumi-storage.workspace = true
+anyhow.workspace = true
+flutter_rust_bridge = "=2.13.0"
+parking_lot.workspace = true
+tokio.workspace = true
+tracing.workspace = true

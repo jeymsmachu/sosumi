@@ -13,12 +13,9 @@ build/
 **/generated_plugins.cmake
 **/ephemeral/
 
-# flutter_rust_bridge codegen output
-packages/sosumi-bridge/src/frb_generated.rs
-packages/sosumi-bridge/lib/src/frb_generated.dart
-packages/sosumi-bridge/lib/src/frb_generated.io.dart
-packages/sosumi-bridge/lib/src/frb_generated.web.dart
-packages/sosumi-bridge/flutter_rust_bridge.yaml
+# flutter_rust_bridge codegen output is committed deliberately: the generated
+# bindings are part of the contract, and committing them means a build needs no
+# codegen toolchain. CI regenerates and diffs to catch an un-regenerated change.
 
 # Secrets and user data — never commit
 .env
