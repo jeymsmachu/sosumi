@@ -103,4 +103,31 @@ tmp="$(mktemp)"
 } > "$tmp"
 
 mv "$tmp" "$lock"
+
+# The application reads a manifest, not this pin file. Generating both from one
+# source is what keeps them from disagreeing: a hash corrected here but not
+# there would reject a legitimate download and look like a network fault.
+manifest="$here/apps/desktop/assets/runtime.toml"
+mkdir -p "$(dirname "$manifest")"
+{
+  echo "# The optional runtime payload for the lossless tier."
+  echo "#"
+  echo "# Generated from crates/sosumi-fairplay/runtime.lock by"
+  echo "# scripts/refresh-fairplay-lock.sh. Every entry names a file the payload"
+  echo "# must contain and the SHA-256 it must have; a file that does not match is"
+  echo "# refused rather than warned about."
+  echo "#"
+  echo "# Sosumi ships none of these files. They are Apple's, and they are fetched"
+  echo "# to the user's own machine only on an explicit action."
+  echo
+  echo 'tier = "Lossless & Hi-Res"'
+  echo
+  while read -r hash name _ ; do
+    case "$hash" in ''|'#'*) continue ;; esac
+    printf '[[files]]\nname = "%s"\nsha256 = "%s"\nsources = ["%s/%s", "%s/%s"]\n\n' \
+      "$name" "$hash" "$source_a" "$name" "$source_b" "$name"
+  done < "$lock"
+} > "$manifest"
+
 echo "wrote $(grep -cE '^[0-9a-f]{64}' "$lock") pinned entries to $lock"
+echo "wrote the app manifest to $manifest"

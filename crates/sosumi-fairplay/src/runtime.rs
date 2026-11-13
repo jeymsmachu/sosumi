@@ -102,11 +102,7 @@ impl RuntimeLayout {
     #[must_use]
     pub fn under(base: impl Into<PathBuf>, manifest: RuntimeManifest) -> Self {
         let base = base.into();
-        Self {
-            lib64: base.join("lib64"),
-            session: base.join("session"),
-            manifest,
-        }
+        Self { lib64: base.join("lib64"), session: base.join("session"), manifest }
     }
 
     /// The name the embedded blob is registered under.
@@ -151,10 +147,7 @@ impl RuntimeLayout {
                 Ok(bytes) => {
                     let actual = sha256_hex(&bytes);
                     if !actual.eq_ignore_ascii_case(&file.sha256) {
-                        problems.push(format!(
-                            "{} does not match its pinned checksum",
-                            file.name
-                        ));
+                        problems.push(format!("{} does not match its pinned checksum", file.name));
                     }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -225,6 +218,103 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Installs the runtime payload: the stubs this build carries, and optionally
+/// the files a fetch has already retrieved.
+///
+/// The split matters for user experience. The stubs are ours and are written
+/// from embedded bytes, so a user never needs a compiler. Apple's libraries
+/// cannot be embedded, so they must be fetched — which is why this takes a
+/// directory the caller has already populated rather than doing network I/O
+/// itself. Keeping the network out of this crate means the install path is
+/// testable without a connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallOutcome {
+    /// Everything is in place.
+    Installed {
+        /// Stubs written from this build.
+        stubs: usize,
+        /// Files the caller had already fetched.
+        provided: usize,
+    },
+    /// The payload is not complete, with what is missing.
+    Incomplete {
+        /// Each missing file, by name.
+        missing: Vec<String>,
+    },
+}
+
+/// The stub libraries, carried inside the binary.
+///
+/// `include_bytes!` from the build script's output, so they cannot drift from the
+/// sources that produce them.
+mod stubs {
+    include!(concat!(env!("OUT_DIR"), "/stubs.rs"));
+}
+
+/// The file names of the stub libraries.
+pub const STUB_FILES: [&str; 3] = ["libandroid.so", "libOpenSLES.so", "libdl.so"];
+
+impl RuntimeLayout {
+    /// Writes the stub libraries and reports what is still missing.
+    ///
+    /// Idempotent: a stub that is already present with the right bytes is left
+    /// alone, so a repair run does not rewrite files needlessly.
+    ///
+    /// # Errors
+    ///
+    /// Propagates filesystem errors from writing the stubs.
+    pub fn install_stubs(&self) -> Result<usize, RuntimeError> {
+        self.ensure_directories()?;
+
+        let carried: [(&str, &[u8]); 3] = [
+            (STUB_FILES[0], stubs::LIBANDROID_SO),
+            (STUB_FILES[1], stubs::LIBOPENSLES_SO),
+            (STUB_FILES[2], stubs::LIBDL_SO),
+        ];
+
+        let mut written = 0;
+        for (name, bytes) in carried {
+            let path = self.lib64.join(name);
+            // Compare before writing, so a re-run is cheap and the mtime of an
+            // unchanged file is not disturbed.
+            // A missing or unreadable file is simply "needs writing".
+            if std::fs::read(&path).is_ok_and(|existing| existing == bytes) {
+                continue;
+            }
+            std::fs::write(&path, bytes)
+                .map_err(|e| RuntimeError::Io(format!("{}: {e}", path.display())))?;
+            written += 1;
+        }
+
+        tracing::info!(target: "sosumi::fairplay", written, "stub libraries installed");
+        Ok(written)
+    }
+
+    /// Reports what the payload is still missing after the stubs are written.
+    ///
+    /// # Errors
+    ///
+    /// Propagates filesystem errors from writing the stubs.
+    pub fn install(&self) -> Result<InstallOutcome, RuntimeError> {
+        let stubs = self.install_stubs()?;
+
+        let missing: Vec<String> = self
+            .manifest
+            .files
+            .iter()
+            .filter(|file| !self.lib64.join(&file.name).is_file())
+            .map(|file| file.name.clone())
+            .collect();
+
+        if missing.is_empty() {
+            let provided = self.manifest.files.len();
+            Ok(InstallOutcome::Installed { stubs, provided })
+        } else {
+            Ok(InstallOutcome::Incomplete { missing })
+        }
+    }
+}
+
 #[cfg(test)]
 // Tests may panic; the workspace lint policy allows it under `cfg(test)` by the
 // same convention every other crate in this workspace uses.
@@ -268,6 +358,81 @@ mod tests {
         let (_dir, layout) = layout_with(&[]);
         assert_eq!(layout.verify(), RuntimeStatus::NotInstalled);
         assert!(!layout.verify().is_ready());
+    }
+
+    #[test]
+    fn installing_writes_the_stubs_from_this_build() {
+        // The stubs are ours, so a user needs no compiler and no download to get
+        // them. This is what makes the install path work on a fresh machine.
+        let (_dir, layout) = layout_with(&[("libCoreFP.so", "00")]);
+        let written = layout.install_stubs().expect("install");
+        assert_eq!(written, STUB_FILES.len(), "every stub is written on a first run");
+
+        for name in STUB_FILES {
+            let path = layout.lib64.join(name);
+            assert!(path.is_file(), "{name} must exist after install");
+            let bytes = std::fs::read(&path).expect("read");
+            // An ELF shared object, not an empty file: the loader would reject a
+            // zero-byte stand-in at load time rather than here.
+            assert_eq!(&bytes[..4], b"\x7fELF", "{name} must be a shared object");
+            assert!(bytes.len() > 1024, "{name} is implausibly small");
+        }
+    }
+
+    #[test]
+    fn installing_twice_writes_nothing_the_second_time() {
+        let (_dir, layout) = layout_with(&[]);
+        let first = layout.install_stubs().expect("first install");
+        assert!(first > 0);
+        // Idempotent, so a repair run does not rewrite identical bytes and
+        // disturb the mtime of files nothing changed.
+        let second = layout.install_stubs().expect("second install");
+        assert_eq!(second, 0);
+    }
+
+    #[test]
+    fn an_incomplete_install_names_what_is_missing() {
+        let (_dir, layout) = layout_with(&[("libCoreFP.so", "00"), ("libc.so", "11")]);
+        match layout.install().expect("install") {
+            InstallOutcome::Incomplete { missing } => {
+                assert_eq!(missing.len(), 2);
+                assert!(missing.contains(&"libCoreFP.so".to_owned()));
+            }
+            other @ InstallOutcome::Installed { .. } => {
+                panic!("expected an incomplete install, got {other:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn a_complete_install_succeeds() {
+        let content = b"library bytes";
+        let hash = sha256_hex(content);
+        let (_dir, layout) = layout_with(&[("libCoreFP.so", &hash)]);
+        std::fs::write(layout.lib64.join("libCoreFP.so"), content).expect("write");
+
+        match layout.install().expect("install") {
+            InstallOutcome::Installed { stubs, provided } => {
+                assert_eq!(provided, 1);
+                assert_eq!(stubs, STUB_FILES.len());
+            }
+            other @ InstallOutcome::Incomplete { .. } => {
+                panic!("expected a complete install, got {other:?}")
+            }
+        }
+        // And the payload now verifies, which is the property that matters.
+        assert!(layout.verify().is_ready(), "a complete install must verify");
+    }
+
+    #[test]
+    fn every_stub_name_is_a_plain_file_name() {
+        // The names are joined onto a directory, so a path separator or a parent
+        // reference here would write outside the payload directory.
+        for name in STUB_FILES {
+            assert!(!name.contains('/'), "{name} must not contain a path separator");
+            assert_ne!(name, "..");
+            assert_eq!(name.rsplit_once('.').map(|(_, ext)| ext), Some("so"));
+        }
     }
 
     #[test]

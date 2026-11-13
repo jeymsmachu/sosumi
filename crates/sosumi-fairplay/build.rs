@@ -1,18 +1,16 @@
-//! Builds the vendored `FairPlay` bridge.
+//! Builds the vendored `FairPlay` bridge and the Android stub libraries.
 //!
-//! The bridge is C and C++, and it is compiled here rather than shipped as a
-//! binary so the whole build is reproducible from source and auditable with the
-//! rest of the tree.
+//! Three things are produced, in this order:
 //!
-//! Three things are compiled, in this order:
-//!
-//! 1. **The embedded libhybris blob.** `libhybris-core.so` is turned into a C
-//!    array and linked in, so the loader can place it in a memfd at runtime
-//!    instead of writing a file to disk or requiring it on the search path.
+//! 1. **The embedded libhybris blob.** `libhybris-core.so` becomes a C array and
+//!    is linked in, so the loader can place it in a memfd at runtime rather than
+//!    reading a file from disk or requiring it on the search path.
 //! 2. **The loader and the flat C API.** These load Apple's libraries through
-//!    the blob above and expose a small C surface to Rust.
-//! 3. **The vendored host-native `FairPlay` session.** Apple's own account and
-//!    key-exchange calls, driven from the host.
+//!    that blob and expose a small C surface to Rust.
+//! 3. **The Android stub libraries.** Apple's objects declare `libandroid.so`,
+//!    `libOpenSLES.so`, and `libdl.so` as dependencies but never call into them.
+//!    Empty stand-ins are built here and embedded as bytes, so installing the
+//!    runtime payload needs no compiler on the user's machine.
 //!
 //! The Android NDK is not required. Nothing here is built for Android: Apple's
 //! libraries are x86-64 ELF objects linking bionic, and libhybris is what lets a
@@ -28,9 +26,13 @@
 use std::env;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
+    // Cargo always sets OUT_DIR; a build script cannot return a Result, so this
+    // is the only way to report its absence.
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set by cargo"));
+
     // The layout mirrors Adam's `drm/` tree: `native/` is the equivalent of
     // `drm/` (the loader and flat API) and `native/session/` of `drm/native/`
     // (the vendored wrapper). Keeping the shape identical means the sources
@@ -38,19 +40,11 @@ fn main() {
     let native = Path::new("native");
     let session = native.join("session");
 
-    // Source files, grouped so the reason for each group is visible.
     let loader = ["embedded_loader.c", "drm_hybris.c", "drm_linux.c"];
-    let session_c = [
-        "main.c",
-        "cmdline.c",
-        "hybris_stubs.c",
-        "drm_lib.c",
-        "cJSON.c",
-        "android_shim.c",
-    ];
+    let session_c =
+        ["main.c", "cmdline.c", "hybris_stubs.c", "drm_lib.c", "cJSON.c", "android_shim.c"];
     let session_cxx = ["main.cpp", "guard.cpp"];
 
-    // A rebuild must happen when any vendored source or header changes.
     for name in &loader {
         println!("cargo:rerun-if-changed={}", native.join(name).display());
     }
@@ -59,12 +53,20 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=native");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=third_party/libhybris-core.so");
 
-    // ── The embedded libhybris blob ───────────────────────────────────────────
-    //
-    // Generated as a C array. The loader places it in an anonymous memfd and
-    // loads it from `/proc/self/fd/N`, so no file is written and the host's
-    // dynamic loader never sees it.
+    build_blob_and_loader(&out_dir, native);
+    build_session(native, &session, &session_c, &session_cxx);
+    build_stubs(&out_dir);
+
+    // Host libraries the vendored code needs. Nothing here comes from Android.
+    for lib in ["stdc++", "pthread", "dl", "m", "curl", "crypto", "ssl"] {
+        println!("cargo:rustc-link-lib=dylib={lib}");
+    }
+}
+
+/// Embeds the libhybris core and compiles the loader and flat C API.
+fn build_blob_and_loader(out_dir: &Path, native: &Path) {
     let hybris_core = Path::new("third_party/libhybris-core.so");
     assert!(
         hybris_core.exists(),
@@ -73,54 +75,49 @@ fn main() {
          from a glibc process. Fetch it with scripts/fetch-fairplay-runtime.sh,\n\
          which pins the source and verifies the checksum."
     );
-    let blob_source = generate_blob(hybris_core, &out_dir);
 
-    // ── The loader and flat API ───────────────────────────────────────────────
-    //
-    // `drm_hybris.c` includes `native/drm_lib.h`, so the include root must be the
-    // crate directory rather than `native/`: the header is referenced by its path
-    // from there. The `native/` entry is kept as well so a bare `#include` of a
-    // sibling still resolves.
-    let mut loader_build = cc::Build::new();
-    loader_build
-        .files(loader.iter().map(|name| native.join(name)))
+    let blob = emit_blob(hybris_core, &out_dir.join("libhybris_core_blob.c"));
+
+    let mut build = cc::Build::new();
+    build
+        .files(
+            ["embedded_loader.c", "drm_hybris.c", "drm_linux.c"]
+                .iter()
+                .map(|name| native.join(name)),
+        )
         .include(native)
+        // `drm_hybris.c` includes `native/session/drm_lib.h`, so the crate root
+        // is on the path as well as `native/`.
         .include(Path::new("."))
-        .file(&blob_source)
+        .file(&blob)
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wno-unused-but-set-variable")
         .flag_if_supported("-Wno-format-truncation")
         .flag_if_supported("-Wno-stringop-overflow")
-        // The sources define `_GNU_SOURCE` themselves; declaring it here too
-        // produces a redefinition warning that hides real ones.
         .flag_if_supported("-Wno-unused-variable")
-        // The vendored loader has one cosmetic const-qualifier warning. Silencing
-        // it keeps the build output readable, so a real warning is not buried.
+        // One cosmetic const-qualifier warning in the vendored loader. Silenced
+        // so a real warning is not buried in it.
         .flag_if_supported("-Wno-discarded-qualifiers")
         .warnings(true);
-    loader_build.compile("sosumi_fairplay_loader");
+    build.compile("sosumi_fairplay_loader");
+}
 
-    // ── The vendored host-native session ──────────────────────────────────────
-    //
-    // Compiler settings, in two passes, because these sources are mixed C and
-    // C++ and must be compiled as their own language. Passing `.cpp(true)` over
-    // a `.c` file makes `gcc` parse it as C++, which rejects `malloc`'s implicit
-    // `void*` conversion — the first thing that breaks.
-    //
-    // The common settings are shared so the two passes cannot drift apart.
-    let common: Vec<(&str, Option<&str>)> = vec![
+/// Compiles the vendored host-native `FairPlay` session.
+///
+/// Two passes, because these sources are mixed C and C++ and each must be
+/// compiled as its own language. Passing `.cpp(true)` over a `.c` file makes the
+/// compiler parse it as C++, which rejects `malloc`'s implicit `void*`
+/// conversion — the first thing that breaks.
+fn build_session(native: &Path, session: &Path, session_c: &[&str], session_cxx: &[&str]) {
+    let common: [(&str, Option<&str>); 5] = [
         ("DRM_LIB_BUILD", None),
         ("MyRelease", None),
         // `hybris_stubs.c` maps the Android loader calls the session code expects
-        // onto the embedded loader's exports. Renaming these would break the
-        // link silently at run time rather than at compile time.
+        // onto the embedded loader's exports. Renaming these breaks the link
+        // silently at run time rather than at compile time.
         ("android_dlopen", Some("aml_android_dlopen")),
         ("android_dlsym", Some("aml_android_dlsym")),
-        ("android_dlerror", Some("aml_android_dlerror")),
-        (
-            "android_update_LD_LIBRARY_PATH",
-            Some("aml_android_update_LD_LIBRARY_PATH"),
-        ),
+        ("android_update_LD_LIBRARY_PATH", Some("aml_android_update_LD_LIBRARY_PATH")),
     ];
 
     let quiet = [
@@ -133,52 +130,102 @@ fn main() {
         "-Wno-int-conversion",
     ];
 
-    let mut session_c_build = cc::Build::new();
-    session_c_build
+    let mut c_build = cc::Build::new();
+    c_build
         .files(session_c.iter().map(|name| session.join(name)))
-        .include(&session)
+        .include(session)
         .include(native)
-        // `main.c` uses `accept4` and `gettimeofday`, both of which need these
-        // headers to be declared. Adam passes the same pair for the same reason.
-        // `cc` forwards each flag separately, so the `-include` and its argument
-        // go in one string rather than two entries.
+        // `main.c` uses `accept4` and `gettimeofday`, which need these to be
+        // declared and included. Adam passes the same for the same reason; `cc`
+        // forwards each flag separately, so the pair goes in one string.
         .define("_GNU_SOURCE", None)
-        .flag("-include").flag("sys/time.h");
+        .flag("-include")
+        .flag("sys/time.h");
     for (name, value) in &common {
-        session_c_build.define(name, *value);
+        c_build.define(name, *value);
     }
     for flag in quiet {
-        session_c_build.flag_if_supported(flag);
+        c_build.flag_if_supported(flag);
     }
-    session_c_build.warnings(false);
-    session_c_build.compile("sosumi_fairplay_session_c");
+    c_build.warnings(false);
+    c_build.compile("sosumi_fairplay_session_c");
 
-    let mut session_cxx_build = cc::Build::new();
-    session_cxx_build
+    let mut cxx_build = cc::Build::new();
+    cxx_build
         .cpp(true)
         .std("c++17")
         .files(session_cxx.iter().map(|name| session.join(name)))
-        .include(&session)
-        .include(native);
+        .include(session)
+        .include(native)
+        .flag_if_supported("-fexceptions");
     for (name, value) in &common {
-        session_cxx_build.define(name, *value);
+        cxx_build.define(name, *value);
     }
     for flag in quiet {
-        session_cxx_build.flag_if_supported(flag);
+        cxx_build.flag_if_supported(flag);
     }
-    session_cxx_build.flag_if_supported("-fexceptions");
-    session_cxx_build.warnings(false);
-    session_cxx_build.compile("sosumi_fairplay_session_cxx");
+    cxx_build.warnings(false);
+    cxx_build.compile("sosumi_fairplay_session_cxx");
+}
 
-    // The libraries the vendored code links against. All are host libraries;
-    // nothing here comes from Android.
-    println!("cargo:rustc-link-lib=dylib=stdc++");
-    println!("cargo:rustc-link-lib=dylib=pthread");
-    println!("cargo:rustc-link-lib=dylib=dl");
-    println!("cargo:rustc-link-lib=dylib=m");
-    println!("cargo:rustc-link-lib=dylib=curl");
-    println!("cargo:rustc-link-lib=dylib=crypto");
-    println!("cargo:rustc-link-lib=dylib=ssl");
+/// Builds the three Android stub libraries and embeds them as bytes.
+///
+/// Apple's objects declare these as dependencies, so the loader must be able to
+/// resolve them, but nothing is ever called. Building them here means the app can
+/// write them out when installing the runtime payload, so a user never needs a
+/// compiler.
+fn build_stubs(out_dir: &Path) {
+    let source = out_dir.join("stub.c");
+    std::fs::write(
+        &source,
+        "/* Empty stand-in for an Android system library Apple's objects declare\n \
+         * but never call. Exports nothing, on purpose. */\n \
+         char sosumi_android_stub;\n",
+    )
+    .expect("the stub source is writable");
+
+    // `libdl.so` must carry the `LIBC` version node: Apple's objects are linked
+    // against that node, and a versioned symbol lookup fails outright when the
+    // node is absent. The dl* functions themselves come from the hybris linker.
+    let map = out_dir.join("libdl.map");
+    std::fs::write(&map, "/* The version node Android's libdl exports under. */\nLIBC { };\n")
+        .expect("the version map is writable");
+
+    let cc = env::var("CC").unwrap_or_else(|_| "cc".to_owned());
+    let mut generated = String::with_capacity(1024);
+
+    for (target, version_script) in
+        [("libandroid.so", None), ("libOpenSLES.so", None), ("libdl.so", Some(&map))]
+    {
+        let output = out_dir.join(target);
+        let mut command = Command::new(&cc);
+        // `-nostdlib` is deliberate: these must not link a C runtime. They are
+        // loaded where bionic's symbols matter, and a glibc dependency inside a
+        // file the bionic linker loads is exactly the mix that breaks.
+        command
+            .arg("-shared")
+            .arg("-fPIC")
+            .arg("-nostdlib")
+            .arg("-O2")
+            .arg("-Wl,--hash-style=both")
+            .arg(format!("-Wl,-soname,{target}"))
+            .arg("-o")
+            .arg(&output)
+            .arg(&source);
+        if let Some(map) = version_script {
+            command.arg(format!("-Wl,--version-script={}", map.display()));
+        }
+        let status = command.status().expect("the C compiler runs");
+        assert!(status.success(), "building {target} failed");
+
+        // Exposed as Rust constants so the installer can write them out.
+        let ident = target.replace('.', "_").to_uppercase();
+        let path = output.display();
+        writeln!(generated, "pub(crate) static {ident}: &[u8] = include_bytes!(\"{path}\");")
+            .expect("a String write cannot fail");
+    }
+
+    std::fs::write(out_dir.join("stubs.rs"), generated).expect("the stub module is writable");
 }
 
 /// Turns a binary into a C array the linker can take.
@@ -190,9 +237,8 @@ fn main() {
 ///
 /// A build script cannot return a `Result`, so every failure here panics with the
 /// step that failed named in the message.
-fn generate_blob(source: &Path, out_dir: &Path) -> PathBuf {
+fn emit_blob(source: &Path, target: &Path) -> PathBuf {
     let bytes = std::fs::read(source).expect("the libhybris blob is readable");
-    let target = out_dir.join("libhybris_core_blob.c");
 
     let mut out = String::with_capacity(bytes.len() * 5 + 256);
     out.push_str("/* Generated by build.rs. Do not edit. */\n");
@@ -214,6 +260,6 @@ fn generate_blob(source: &Path, out_dir: &Path) -> PathBuf {
     writeln!(out, "const uint64_t libhybris_core_so_size = {};", bytes.len())
         .expect("a String write cannot fail");
 
-    std::fs::write(&target, out).expect("the blob source is writable");
-    target
+    std::fs::write(target, out).expect("the blob source is writable");
+    target.to_path_buf()
 }

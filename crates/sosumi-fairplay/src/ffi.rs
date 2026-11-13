@@ -14,8 +14,12 @@ use std::ffi::{c_char, c_int, c_void};
 ///
 /// `kind` is `"credentials"` or `"2fa"`. The callee writes into `out_buf`, which
 /// the caller allocates with `out_size` bytes.
-pub type AuthCallback =
-    unsafe extern "C" fn(kind: *const c_char, out_buf: *mut c_char, out_size: c_int, ud: *mut c_void);
+pub type AuthCallback = unsafe extern "C" fn(
+    kind: *const c_char,
+    out_buf: *mut c_char,
+    out_size: c_int,
+    ud: *mut c_void,
+);
 
 /// Called on state transitions, with one of the strings named in [`super::session::SessionState`].
 pub type StateCallback = unsafe extern "C" fn(state: *const c_char, ud: *mut c_void);

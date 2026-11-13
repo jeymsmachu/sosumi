@@ -11,14 +11,18 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod capability;
 pub mod event;
+pub mod fairplay_sign_in;
 pub mod media;
 pub mod playback;
 pub mod queue;
 pub mod session;
 pub mod sosumi;
 
+pub use capability::{CapabilityReport, Runtime, SharedRuntime};
 pub use event::{Event, EventBus, EventReceiver};
+pub use fairplay_sign_in::{SignIn, SignInEvent};
 pub use media::MediaFetcher;
 pub use playback::PlaybackEngine;
 pub use queue::{Queue, RepeatMode};

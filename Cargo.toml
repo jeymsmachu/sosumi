@@ -30,6 +30,7 @@ authors = ["Sosumi contributors"]
 [workspace.dependencies]
 # Internal crates
 sosumi-diagnostics = { path = "crates/sosumi-diagnostics" }
+sosumi-fairplay = { path = "crates/sosumi-fairplay" }
 sosumi-metadata = { path = "crates/sosumi-metadata" }
 sosumi-provider-api = { path = "crates/sosumi-provider-api" }
 sosumi-security = { path = "crates/sosumi-security" }

@@ -17,10 +17,14 @@ workspace = true
 
 [dependencies]
 sosumi-core.workspace = true
+sosumi-fairplay.workspace = true
 sosumi-diagnostics.workspace = true
 sosumi-provider-api.workspace = true
 sosumi-provider-apple.workspace = true
 sosumi-provider-local.workspace = true
+sosumi-spatial.workspace = true
+sosumi-linux.workspace = true
+sosumi-discord.workspace = true
 sosumi-security.workspace = true
 sosumi-storage.workspace = true
 anyhow.workspace = true

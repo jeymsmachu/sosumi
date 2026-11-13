@@ -3,9 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/apple_sign_in.dart';
+import '../../core/capabilities.dart';
 import '../../core/session.dart';
 import '../../theme/theme.dart';
+import 'sign_in_sheet.dart';
 
 /// The account control at the foot of the sidebar.
 ///
@@ -196,222 +197,23 @@ class _Avatar extends StatelessWidget {
   }
 }
 
-/// Runs the sign-in flow and reports the outcome in the interface.
+/// Runs the native sign-in flow.
 ///
-/// The HIG is explicit that sign-in should be delayed until it is needed and
-/// that the request should explain why the account is required. This is called
-/// only when the user asks, and the pane below states the reason before handing
-/// off to Apple's own page.
+/// Deliberately not a web view. Apple's sign-in page cannot complete on Linux
+/// because WebKitGTK ships without Encrypted Media, so the page reports an
+/// authorization error after a correct password — see `docs/PLATFORM-LIMITS.md`.
+/// This drives Apple's own account libraries instead, which need no browser.
 ///
-/// Deliberately not a dialog that never closes: the user may decline, and that
-/// must leave the app exactly as it was.
+/// The HIG is explicit that sign-in should be delayed until it is needed and that
+/// the request should say why the account is required, so the sheet opens only
+/// when asked and states the reason before collecting anything.
 Future<void> showSignIn(BuildContext context, WidgetRef ref) async {
-  final messenger = ScaffoldMessenger.maybeOf(context);
+  final succeeded = await SignInSheet.show(context);
+  if (!succeeded || !context.mounted) return;
 
-  // Explain before opening a web view, so the user knows what they are about to
-  // see and why.
-  final proceed = await showDialog<bool>(
-    context: context,
-    barrierColor: Colors.black.withValues(alpha: 0.4),
-    builder: (context) => const _SignInExplainer(),
-  );
-  if (proceed != true) return;
-
-  final result = await AppleSignIn.run();
-
-  switch (result) {
-    case SignInSuccess(:final userToken, :final storefront):
-      await ref.read(sessionProvider.notifier).setSession(
-            musicUserToken: userToken,
-            storefront: storefront,
-          );
-    case SignInCancelled():
-      // Nothing to say: the user changed their mind.
-      break;
-    case SignInUnavailable(:final reason, :final detail):
-      // A limitation of the environment, not a mistake by the user, so it is
-      // explained rather than reported as an error.
-      if (context.mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (context) => _SignInUnavailable(reason: reason, detail: detail),
-        );
-      }
-    case SignInFailed(:final message):
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-  }
-}
-
-/// Explains an environment that cannot complete sign-in.
-///
-/// The reason matters. A user who has just typed a correct password and a
-/// correct verification code and then sees "Authorization failed" will assume
-/// they typed something wrong, and will try again, and again. Saying plainly
-/// that the engine cannot do it, and what to use instead, respects their time.
-class _SignInUnavailable extends StatelessWidget {
-  const _SignInUnavailable({required this.reason, required this.detail});
-
-  final String reason;
-  final String detail;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: GlassSurface(
-          radius: Radii.panel,
-          blur: 44,
-          fill: palette.elevatedGlass,
-          padding: const EdgeInsets.all(Insets.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.info_outline_rounded, size: 18, color: palette.textSecondary),
-                  const SizedBox(width: Insets.sm),
-                  Text('Sign-in is unavailable here',
-                      style: TextStyles.title3.copyWith(color: palette.textPrimary)),
-                ],
-              ),
-              const SizedBox(height: Insets.md),
-              Text(reason, style: TextStyles.body.copyWith(color: palette.textSecondary)),
-              const SizedBox(height: Insets.md),
-              Text(
-                'Apple\u2019s sign-in page registers a protected-media key system as part '
-                'of starting up. WebKitGTK, the engine this app embeds, is built '
-                'without that support on most distributions, so the page cannot '
-                'finish. This is an engine limitation, not a problem with your '
-                'account or your password.',
-                style: TextStyles.caption1.copyWith(color: palette.textTertiary),
-              ),
-              const SizedBox(height: Insets.lg),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  FilledButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: palette.accent,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(Radii.small),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Insets.lg,
-                        vertical: Insets.md,
-                      ),
-                    ),
-                    child: const Text('OK'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// What signing in provides, and what Sosumi does with it.
-///
-/// Apple's guidance is to write a brief, friendly description of the reason for
-/// the requirement and its benefit, so this states both plainly and names the
-/// one thing a cautious user actually wants to know: where the password goes.
-class _SignInExplainer extends StatelessWidget {
-  const _SignInExplainer();
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 400),
-        child: GlassSurface(
-          radius: Radii.panel,
-          blur: 44,
-          fill: palette.elevatedGlass,
-          padding: const EdgeInsets.all(Insets.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.apple, size: 20, color: palette.textPrimary),
-                  const SizedBox(width: Insets.sm),
-                  Text('Sign in to Apple Music',
-                      style: TextStyles.title3.copyWith(color: palette.textPrimary)),
-                ],
-              ),
-              const SizedBox(height: Insets.md),
-              Text(
-                'Sosumi plays music from your Apple Music subscription. Signing in '
-                'connects the account so the app can stream and download what your '
-                'subscription covers.',
-                style: TextStyles.body.copyWith(color: palette.textSecondary),
-              ),
-              const SizedBox(height: Insets.md),
-              // The reassurance worth stating: the password stays with Apple.
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.lock_outline_rounded, size: 14, color: palette.textTertiary),
-                  const SizedBox(width: Insets.sm),
-                  Expanded(
-                    child: Text(
-                      'You sign in on Apple\u2019s own page, inside this window. Your '
-                      'Apple ID password goes directly to Apple and is never seen or '
-                      'stored by Sosumi.',
-                      style: TextStyles.caption1.copyWith(color: palette.textTertiary),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: Insets.lg),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: Text('Not Now',
-                        style: TextStyles.body.copyWith(color: palette.textSecondary)),
-                  ),
-                  const SizedBox(width: Insets.sm),
-                  FilledButton(
-                    onPressed: () => Navigator.of(context).pop(true),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: palette.accent,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(Radii.small),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Insets.lg,
-                        vertical: Insets.md,
-                      ),
-                    ),
-                    child: const Text('Continue'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  // The session files are written by the bridge, so the app only has to refresh
+  // what it shows. A refresh rather than a state change: the source of truth is
+  // the runtime on disk, not this widget.
+  ref.invalidate(capabilitiesProvider);
+  unawaited(ref.read(sessionProvider.notifier).refresh());
 }

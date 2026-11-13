@@ -287,10 +287,16 @@ pub(crate) fn identity(context: &Context) {
 }
 
 /// Reports every optional capability.
-pub(crate) fn capabilities(_context: &Context) {
-    let mut health = Vec::new();
+pub(crate) fn capabilities(context: &Context) {
+    // Read the same report the Settings screen reads, rather than probing
+    // separately. A CLI that disagreed with the app would be worse than no CLI:
+    // it would send a developer looking in the wrong place.
+    let lossless = context.app.lossless_capability();
 
-    // Spatial Audio: whether an object renderer is installed.
+    let mut health = vec![lossless.to_health()];
+
+    // Spatial Audio: whether an object renderer is installed, plus the fallback
+    // it always has.
     let cavern = CavernRenderer::detect();
     health.push(sosumi_spatial::health(&cavern as &dyn Renderer));
 
@@ -300,7 +306,7 @@ pub(crate) fn capabilities(_context: &Context) {
         name: "Spatial downmix (fallback)".to_owned(),
         status: HealthStatus::Ready,
         detail: if downmix.is_available() {
-            "Available. Folds object audio to stereo without object rendering.".to_owned()
+            "Folds object audio to stereo when no object renderer is present".to_owned()
         } else {
             "Unavailable".to_owned()
         },
@@ -323,16 +329,34 @@ pub(crate) fn capabilities(_context: &Context) {
             .with_action("Run inside a desktop session")
     });
 
-    println!("{:<12} {:<32} DETAIL", "STATE", "CAPABILITY");
+    println!("{:<12} {:<28} DETAIL", "STATE", "CAPABILITY");
     for entry in &health {
         let state = match entry.status {
             HealthStatus::Ready => "ready",
             HealthStatus::Unavailable => "available",
             HealthStatus::Degraded => "degraded",
         };
-        println!("{:<12} {:<32} {}", state, entry.name, entry.detail);
+        println!("{state:<12} {:<28} {}", entry.name, entry.detail);
         if let Some(action) = &entry.action {
-            println!("{:<12} {:<32} -> {action}", "", "");
+            println!("{:<12} {:<28} -> {action}", "", "");
+        }
+    }
+
+    // For an installable lossless tier, name the files so a developer can fetch
+    // exactly what is missing rather than the whole payload.
+    if let Some(runtime) = context.app.runtime() {
+        let missing = runtime.missing_files();
+        if !missing.is_empty() {
+            println!();
+            println!("Lossless is missing {} file(s):", missing.len());
+            for name in missing.iter().take(6) {
+                println!("  {name}");
+            }
+            if missing.len() > 6 {
+                println!("  \u{2026} and {} more", missing.len() - 6);
+            }
+            println!();
+            println!("Fetch them with: scripts/fetch-fairplay-runtime.sh");
         }
     }
 }

@@ -7,8 +7,8 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `block_on`, `default_music_directories`, `from_provider`, `machine_sealer`, `parse_quality`, `parse_repeat`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `attach_runtime`, `block_on`, `default_music_directories`, `discover_manifest`, `failed`, `from_provider`, `from_report`, `from`, `machine_sealer`, `parse_quality`, `parse_repeat`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Builds the engine. The UI calls this once, at startup.
 ///
@@ -30,8 +30,45 @@ abstract class Engine implements RustOpaqueInterface {
   /// True when audio output is available.
   Future<bool> audioReady();
 
+  /// Starts a native sign-in to Apple.
+  ///
+  /// Returns immediately; progress arrives on [`Engine::watch_sign_in`]. The
+  /// work runs on a background thread because the underlying call blocks for
+  /// the whole login, including while it waits for a verification code.
+  ///
+  /// The password is moved into that thread, used for one call, and dropped. It
+  /// is never stored, logged, or returned.
+  ///
+  /// # Errors
+  ///
+  /// Fails when the runtime is not attached, when a sign-in is already running,
+  /// or when the worker cannot start.
+  Future<void> beginSignIn({required String email, required String password});
+
+  /// Gives up on a sign-in in progress.
+  Future<void> cancelSignIn();
+
+  /// Reports the optional capabilities this machine has.
+  ///
+  /// Read-only and local, so the Settings screen can call it freely.
+  Future<List<CapabilityDto>> capabilities();
+
   /// Appends a track to the queue, returning the new length.
   Future<BigInt> enqueue({required String id});
+
+  /// Writes the stub libraries for the lossless tier.
+  ///
+  /// The half of installation that needs no network: the stubs are carried in
+  /// this binary. Apple's own files still have to be fetched, and
+  /// [`Engine::capabilities`] reports which ones are missing afterwards.
+  ///
+  /// # Errors
+  ///
+  /// Fails when the runtime is not attached or the stubs cannot be written.
+  Future<BigInt> installLosslessStubs();
+
+  /// Whether a lossless sign-in has completed.
+  Future<bool> losslessSignedIn();
 
   /// Fetches lyrics for a track.
   ///
@@ -139,6 +176,13 @@ abstract class Engine implements RustOpaqueInterface {
   /// The storefront in use.
   Future<String> storefront();
 
+  /// Supplies the verification code the bridge is waiting for.
+  ///
+  /// # Errors
+  ///
+  /// Fails when no sign-in is in progress or the attempt already ended.
+  Future<void> submitSignInCode({required String code});
+
   /// Fetches one track's metadata.
   ///
   /// # Errors
@@ -154,6 +198,17 @@ abstract class Engine implements RustOpaqueInterface {
   ///
   /// The stream ends when the engine is dropped.
   Stream<EventDto> watchEvents();
+
+  /// Streams sign-in progress to the UI.
+  ///
+  /// Emits one event per state change until the attempt ends. A second call
+  /// while an attempt is running subscribes to the same attempt rather than
+  /// starting another.
+  ///
+  /// # Errors
+  ///
+  /// Fails when no sign-in is in progress.
+  Stream<SignInEventDto> watchSignIn();
 }
 
 /// An album, flattened for Dart.
@@ -248,6 +303,66 @@ class BridgeError implements FrbException {
           kind == other.kind &&
           message == other.message &&
           remedy == other.remedy;
+}
+
+/// One optional capability, as the Settings screen renders it.
+class CapabilityDto {
+  /// Stable machine id, for example `fairplay`.
+  final String id;
+
+  /// Display name, for example "Lossless & Hi-Res".
+  final String name;
+
+  /// One of `ready`, `available`, `degraded`, or `unsupported`.
+  final String state;
+
+  /// One line explaining the state.
+  final String detail;
+
+  /// What the user can do, when there is something to do.
+  final String? action;
+
+  /// The specific files missing, for an installable tier.
+  final List<String> missing;
+
+  /// True when the tier is installed and working.
+  final bool ready;
+
+  const CapabilityDto({
+    required this.id,
+    required this.name,
+    required this.state,
+    required this.detail,
+    this.action,
+    required this.missing,
+    required this.ready,
+  });
+
+  static Future<CapabilityDto> default_() =>
+      RustLib.instance.api.crateApiCapabilityDtoDefault();
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      name.hashCode ^
+      state.hashCode ^
+      detail.hashCode ^
+      action.hashCode ^
+      missing.hashCode ^
+      ready.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CapabilityDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          state == other.state &&
+          detail == other.detail &&
+          action == other.action &&
+          missing == other.missing &&
+          ready == other.ready;
 }
 
 /// An event pushed to the UI.
@@ -474,6 +589,31 @@ class SessionDto {
           signedIn == other.signedIn &&
           playable == other.playable &&
           storefront == other.storefront;
+}
+
+/// One step of a native sign-in.
+class SignInEventDto {
+  /// One of `started`, `code_required`, `preparing`, `succeeded`, or `failed`.
+  final String kind;
+
+  /// A message fit for the sign-in form, on failure.
+  final String? message;
+
+  const SignInEventDto({required this.kind, this.message});
+
+  static Future<SignInEventDto> default_() =>
+      RustLib.instance.api.crateApiSignInEventDtoDefault();
+
+  @override
+  int get hashCode => kind.hashCode ^ message.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SignInEventDto &&
+          runtimeType == other.runtimeType &&
+          kind == other.kind &&
+          message == other.message;
 }
 
 /// A track, flattened for Dart.

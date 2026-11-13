@@ -44,6 +44,15 @@ impl Context {
         let apple = Arc::new(AppleMusicProvider::new().map_err(|e| anyhow::anyhow!("{e}"))?);
         app.register(Arc::clone(&apple) as Arc<dyn sosumi_provider_api::MediaProvider>);
 
+        // Attach the lossless runtime, exactly as the bridge does, so the CLI
+        // exercises the same path the application uses.
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/desktop/assets/runtime.toml");
+        match sosumi_core::Runtime::load(&paths.runtime(), &manifest) {
+            Ok(runtime) => app.set_runtime(std::sync::Arc::new(runtime)),
+            Err(error) => tracing::warn!(%error, "lossless runtime unavailable"),
+        }
+
         let music_dirs = default_music_directories();
         if !music_dirs.is_empty() {
             app.register(Arc::new(LocalProvider::new(music_dirs))

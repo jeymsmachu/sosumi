@@ -50,6 +50,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RustStreamSink<EventDto> dco_decode_StreamSink_event_dto_Sse(dynamic raw);
 
   @protected
+  RustStreamSink<SignInEventDto> dco_decode_StreamSink_sign_in_event_dto_Sse(
+    dynamic raw,
+  );
+
+  @protected
   String dco_decode_String(dynamic raw);
 
   @protected
@@ -80,6 +85,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeError dco_decode_bridge_error(dynamic raw);
 
   @protected
+  CapabilityDto dco_decode_capability_dto(dynamic raw);
+
+  @protected
   EventDto dco_decode_event_dto(dynamic raw);
 
   @protected
@@ -90,6 +98,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ArtistDto> dco_decode_list_artist_dto(dynamic raw);
+
+  @protected
+  List<CapabilityDto> dco_decode_list_capability_dto(dynamic raw);
 
   @protected
   List<LyricLineDto> dco_decode_list_lyric_line_dto(dynamic raw);
@@ -132,6 +143,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SessionDto dco_decode_session_dto(dynamic raw);
+
+  @protected
+  SignInEventDto dco_decode_sign_in_event_dto(dynamic raw);
 
   @protected
   TrackDto dco_decode_track_dto(dynamic raw);
@@ -178,6 +192,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RustStreamSink<SignInEventDto> sse_decode_StreamSink_sign_in_event_dto_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
@@ -210,6 +229,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   BridgeError sse_decode_bridge_error(SseDeserializer deserializer);
 
   @protected
+  CapabilityDto sse_decode_capability_dto(SseDeserializer deserializer);
+
+  @protected
   EventDto sse_decode_event_dto(SseDeserializer deserializer);
 
   @protected
@@ -220,6 +242,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ArtistDto> sse_decode_list_artist_dto(SseDeserializer deserializer);
+
+  @protected
+  List<CapabilityDto> sse_decode_list_capability_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<LyricLineDto> sse_decode_list_lyric_line_dto(
@@ -264,6 +291,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SessionDto sse_decode_session_dto(SseDeserializer deserializer);
+
+  @protected
+  SignInEventDto sse_decode_sign_in_event_dto(SseDeserializer deserializer);
 
   @protected
   TrackDto sse_decode_track_dto(SseDeserializer deserializer);
@@ -320,6 +350,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_StreamSink_sign_in_event_dto_Sse(
+    RustStreamSink<SignInEventDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
@@ -356,6 +392,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bridge_error(BridgeError self, SseSerializer serializer);
 
   @protected
+  void sse_encode_capability_dto(CapabilityDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_event_dto(EventDto self, SseSerializer serializer);
 
   @protected
@@ -367,6 +406,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_artist_dto(
     List<ArtistDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_capability_dto(
+    List<CapabilityDto> self,
     SseSerializer serializer,
   );
 
@@ -426,6 +471,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_session_dto(SessionDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sign_in_event_dto(
+    SignInEventDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_track_dto(TrackDto self, SseSerializer serializer);

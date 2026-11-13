@@ -18,6 +18,7 @@ use sosumi_provider_api::{
 };
 use sosumi_storage::{Paths, SecretStore};
 
+use crate::capability::{CapabilityReport, SharedRuntime};
 use crate::event::{Event, EventBus, EventReceiver};
 use crate::playback::PlaybackEngine;
 use crate::queue::Queue;
@@ -39,6 +40,12 @@ pub struct Sosumi {
     /// the app usable for browsing on a machine with no sound card. Held behind
     /// an `Arc` so a caller can clone it out and await without the lock.
     playback: RwLock<Option<Arc<PlaybackEngine>>>,
+    /// The optional lossless runtime, when its manifest was found.
+    ///
+    /// `None` when the manifest is missing, which means the install is broken
+    /// rather than that the tier is unavailable, so the capability reports an
+    /// error instead of offering an install that cannot work.
+    runtime: Option<SharedRuntime>,
 }
 
 impl std::fmt::Debug for Sosumi {
@@ -72,6 +79,7 @@ impl Sosumi {
             quality: RwLock::new(AudioQuality::High),
             current: RwLock::new(None),
             playback: RwLock::new(None),
+            runtime: None,
         })
     }
 
@@ -153,6 +161,50 @@ impl Sosumi {
         *self.current.write() = None;
         self.events.publish(Event::Stopped);
         Ok(())
+    }
+
+    /// Attaches the optional lossless runtime.
+    ///
+    /// Separate from the constructor because the manifest lives on disk and a
+    /// caller may legitimately not have it: the app runs without this.
+    pub fn set_runtime(&mut self, runtime: SharedRuntime) {
+        self.runtime = Some(runtime);
+        self.events.publish(Event::CapabilitiesChanged);
+    }
+
+    /// The runtime, when its manifest was found.
+    #[must_use]
+    pub fn runtime(&self) -> Option<&SharedRuntime> {
+        self.runtime.as_ref()
+    }
+
+    /// Reports the lossless tier's state.
+    ///
+    /// Returns an unsupported state when there is no runtime attached, which is a
+    /// broken install rather than an uninstalled tier, and says so.
+    #[must_use]
+    pub fn lossless_capability(&self) -> CapabilityReport {
+        match &self.runtime {
+            Some(runtime) => runtime.probe(),
+            None => CapabilityReport::Unsupported {
+                reason: "the runtime manifest is missing from this installation".to_owned(),
+            },
+        }
+    }
+
+    /// Writes the stub libraries and reports what is still missing.
+    ///
+    /// # Errors
+    ///
+    /// Fails when there is no runtime attached, or the stubs cannot be written.
+    pub fn install_lossless_stubs(&self) -> Result<usize> {
+        let runtime = self.runtime.as_ref().ok_or_else(|| ProviderError::CapabilityMissing {
+            feature: "fairplay",
+            remedy: "The runtime manifest is missing from this installation".to_owned(),
+        })?;
+        let written = runtime.install_stubs().map_err(|e| ProviderError::Other(e.to_string()))?;
+        self.events.publish(Event::CapabilitiesChanged);
+        Ok(written)
     }
 
     /// Registers a provider. Registering a provider with a known id replaces it.

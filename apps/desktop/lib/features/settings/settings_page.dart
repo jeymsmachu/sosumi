@@ -1,20 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/capabilities.dart';
 import '../../core/session.dart';
 import '../../theme/theme.dart';
 
 /// The Settings page.
 ///
-/// It leads with the sound-quality choice, then sign-in, then the optional
-/// capabilities. The order matters: quality is what a user comes here for, and
-/// capabilities explain what a higher tier would require.
+/// It leads with the account, then the sound-quality choice, then the optional
+/// capabilities. That order matches what a person comes here for: who they are,
+/// what they hear, and what else they could have.
+///
+/// Capability rows read live state rather than shipping a hard-coded list, so the
+/// screen cannot claim something is installed when it is not. See
+/// [capabilitiesProvider].
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
+    final capabilities = ref.watch(capabilitiesProvider);
 
     return ListView(
       // Bottom padding clears the floating player, which overlays the content.
@@ -27,22 +33,22 @@ class SettingsPage extends ConsumerWidget {
       children: [
         const _Group(
           title: 'Account',
-          children: [
-            _AccountRow(),
-          ],
+          children: [_AccountRow()],
         ),
         const SizedBox(height: Insets.lg),
         const _Group(
-          title: 'Audio quality',
-          children: [
-            _QualityRow(),
-          ],
+          title: 'Audio Quality',
+          children: [_QualityRow()],
         ),
         const SizedBox(height: Insets.lg),
-        const _Group(
+        _Group(
           title: 'Enhancements',
           children: [
-            _CapabilityRow(),
+            switch (capabilities) {
+              AsyncData(:final value) => _CapabilityList(capabilities: value),
+              AsyncError(:final error) => _CapabilityError(message: '$error'),
+              _ => const _CapabilityLoading(),
+            },
           ],
         ),
         const SizedBox(height: Insets.xl),
@@ -52,7 +58,11 @@ class SettingsPage extends ConsumerWidget {
   }
 }
 
-/// A titled group of rows, drawn as one glass panel.
+/// A titled group of rows, drawn as one content surface.
+///
+/// Content surfaces, not glass: Apple's rule is that the material belongs to the
+/// functional layer, so a settings card uses a standard surface. See
+/// `materials.md`: "Don't use Liquid Glass in the content layer."
 class _Group extends StatelessWidget {
   const _Group({required this.title, required this.children});
 
@@ -66,27 +76,17 @@ class _Group extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: Insets.xs, bottom: Insets.sm),
+          padding: const EdgeInsets.only(left: Insets.md, bottom: Insets.sm),
           child: Text(
             title.toUpperCase(),
-            style: TextStyles.caption1.copyWith(color: palette.textSecondary),
+            style: TextStyles.caption2.copyWith(color: palette.textSecondary, letterSpacing: 0.6),
           ),
         ),
-        // Content, not chrome. Settings groups are content-layer cards, so they
-        // use a standard surface; glass belongs only on the sidebar and the
-        // transport. See materials.md: "Don't use Liquid Glass in the content
-        // layer."
         ContentSurface(
           radius: Radii.large,
           elevated: true,
-          padding: const EdgeInsets.symmetric(
-            horizontal: Insets.lg,
-            vertical: Insets.md,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: Insets.lg, vertical: Insets.md),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
         ),
       ],
     );
@@ -102,24 +102,17 @@ class _AccountRow extends ConsumerWidget {
     final palette = context.palette;
 
     return _SettingRow(
-      title: session.signedIn ? 'Signed in' : 'Not signed in',
+      title: session.signedIn ? 'Signed in' : 'Not Signed In',
       subtitle: session.signedIn
           ? 'Storefront ${session.storefront.toUpperCase()}'
-          : 'Sign in with your Apple Music subscription',
+          : 'An active Apple Music subscription is required',
       trailing: session.signedIn
           ? TextButton(
               onPressed: () => ref.read(sessionProvider.notifier).signOut(),
-              child: Text(
-                'Sign Out',
-                style: TextStyles.headline.copyWith(color: palette.accent),
-              ),
+              child: Text('Sign Out',
+                  style: TextStyles.body.copyWith(color: palette.accent)),
             )
-          : FilledButton(
-              onPressed: () {
-                // The web sign-in flow is wired once the login view lands.
-              },
-              child: const Text('Sign In'),
-            ),
+          : null,
     );
   }
 }
@@ -132,74 +125,210 @@ class _QualityRow extends ConsumerStatefulWidget {
 }
 
 class _QualityRowState extends ConsumerState<_QualityRow> {
-  /// The tiers, most capable last, matching Apple Music's own ordering.
-  static const _tiers = <(String, String, String?)>[
-    ('high', 'High Quality', null),
-    ('lossless', 'Lossless', 'Requires the FairPlay component'),
-    ('hi_res_lossless', 'Hi-Res Lossless', 'Requires the FairPlay component'),
-    ('spatial', 'Spatial Audio', 'Requires the object-based renderer'),
+  /// The tiers, least capable first, which is the order Apple Music uses.
+  static const _tiers = <(String, String)>[
+    ('High Quality', 'AAC 256 kbps'),
+    ('Lossless', 'ALAC up to 24-bit/48 kHz'),
+    ('Hi-Res Lossless', 'ALAC up to 24-bit/192 kHz'),
+    ('Spatial Audio', 'Object-based, rendered binaurally'),
   ];
 
-  String _selected = 'high';
+  String _selected = 'High Quality';
 
   @override
   Widget build(BuildContext context) {
+    final capabilities = ref.watch(capabilitiesProvider);
+    // A tier is usable when the capability it depends on is ready. Reading that
+    // rather than a separate flag means the picker cannot offer something the
+    // machine cannot do.
+    final losslessReady = capabilities.maybeWhen(
+      data: (list) => list.any((c) => c.id == 'fairplay' && c.ready),
+      orElse: () => false,
+    );
+    final spatialReady = capabilities.maybeWhen(
+      data: (list) => list.any((c) => c.id == 'spatial' && c.ready),
+      orElse: () => false,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final (value, label, note) in _tiers)
+        for (final (label, description) in _tiers)
           _ChoiceRow(
             label: label,
-            note: note,
-            // A tier needing a component that is not installed stays visible but
-            // is not selectable: showing the requirement is better than hiding
-            // the option, and much better than failing after the choice.
-            enabled: note == null,
-            selected: value == _selected,
-            onTap: () => setState(() => _selected = value),
+            note: switch (label) {
+              'High Quality' => description,
+              // An unavailable tier stays visible with the reason, rather than
+              // being hidden: knowing the option exists is what tells a person
+              // what installing the component would give them.
+              'Spatial Audio' =>
+                spatialReady ? description : 'Requires an object-based renderer',
+              _ => losslessReady ? description : 'Requires the Lossless component',
+            },
+            enabled: switch (label) {
+              'High Quality' => true,
+              'Spatial Audio' => spatialReady,
+              _ => losslessReady,
+            },
+            selected: label == _selected,
+            onTap: () => setState(() => _selected = label),
           ),
       ],
     );
   }
 }
 
-class _CapabilityRow extends StatelessWidget {
-  const _CapabilityRow();
+/// The capability rows, one per subsystem.
+class _CapabilityList extends ConsumerWidget {
+  const _CapabilityList({required this.capabilities});
+
+  final List<CapabilityInfo> capabilities;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final palette = context.palette;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (index, capability) in capabilities.indexed) ...[
+          if (index > 0) Divider(color: palette.separator, height: Insets.xl),
+          _SettingRow(
+            title: capability.name,
+            subtitle: capability.detail,
+            trailing: capability.ready
+                ? _StatusBadge(label: 'Ready', colour: palette.blue)
+                : _InstallButton(capability: capability),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _CapabilityLoading extends StatelessWidget {
+  const _CapabilityLoading();
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Row(
       children: [
-        _SettingRow(
-          title: 'Lossless & Hi-Res',
-          subtitle: 'Not installed. Enables ALAC up to 24-bit/192 kHz.',
-          trailing: _InstallButton(onPressed: () {}),
+        SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 1.5, color: palette.textTertiary),
         ),
-        Divider(color: palette.separator, height: Insets.xl),
-        _SettingRow(
-          title: 'Spatial Audio',
-          subtitle: 'Not installed. Renders object-based audio binaurally.',
-          trailing: _InstallButton(onPressed: () {}),
-        ),
-        Divider(color: palette.separator, height: Insets.xl),
-        const _SettingRow(
-          title: 'System Media Controls',
-          subtitle: 'Available. Control playback from your desktop.',
-          trailing: _Toggle(value: true),
+        const SizedBox(width: Insets.md),
+        Text('Checking what is available\u2026',
+            style: TextStyles.body.copyWith(color: palette.textTertiary)),
+      ],
+    );
+  }
+}
+
+class _CapabilityError extends StatelessWidget {
+  const _CapabilityError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.warning_amber_rounded, size: 14, color: palette.accent),
+        const SizedBox(width: Insets.sm),
+        Expanded(
+          child: Text(
+            'Could not read the capability list: $message',
+            style: TextStyles.caption1.copyWith(color: palette.textSecondary),
+          ),
         ),
       ],
     );
   }
 }
 
+/// The install action for a capability that is not ready.
+class _InstallButton extends ConsumerStatefulWidget {
+  const _InstallButton({required this.capability});
+
+  final CapabilityInfo capability;
+
+  @override
+  ConsumerState<_InstallButton> createState() => _InstallButtonState();
+}
+
+class _InstallButtonState extends ConsumerState<_InstallButton> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    // `unsupported` means the machine cannot run it at all, so no action is
+    // offered. Telling someone to install something that cannot work is worse
+    // than saying nothing.
+    if (widget.capability.state == 'unsupported') {
+      return const SizedBox.shrink();
+    }
+
+    // An action that needs the user to do something outside the app, such as
+    // starting Discord, is shown as disabled text rather than a button that
+    // cannot do anything.
+    if (widget.capability.action != null && widget.capability.missing.isEmpty) {
+      return Text(
+        widget.capability.action!,
+        style: TextStyles.caption1.copyWith(color: context.palette.textTertiary),
+      );
+    }
+
+    return OutlinedButton(
+      onPressed: _busy ? null : _install,
+      style: OutlinedButton.styleFrom(
+        side: BorderSide(color: context.palette.glassBorder),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.pill)),
+        padding: const EdgeInsets.symmetric(horizontal: Insets.lg),
+      ),
+      child: _busy
+          ? const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 1.5),
+            )
+          : Text(widget.capability.action ?? 'Install',
+              style: TextStyles.body.copyWith(color: context.palette.textPrimary)),
+    );
+  }
+
+  Future<void> _install() async {
+    setState(() => _busy = true);
+    await ref.read(capabilitiesProvider.notifier).install(widget.capability.id);
+    if (mounted) setState(() => _busy = false);
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.label, required this.colour});
+
+  final String label;
+  final Color colour;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Insets.sm, vertical: 2),
+      decoration: BoxDecoration(
+        color: colour.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(Radii.pill),
+      ),
+      child: Text(label, style: TextStyles.caption2.copyWith(color: colour)),
+    );
+  }
+}
+
 class _SettingRow extends StatelessWidget {
-  const _SettingRow({
-    required this.title,
-    required this.subtitle,
-    this.trailing,
-  });
+  const _SettingRow({required this.title, required this.subtitle, this.trailing});
 
   final String title;
   final String subtitle;
@@ -215,12 +344,9 @@ class _SettingRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(title, style: TextStyles.rowTitle.copyWith(color: palette.textPrimary)),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: TextStyles.callout.copyWith(color: palette.textSecondary),
-              ),
+              Text(title, style: TextStyles.body.copyWith(color: palette.textPrimary)),
+              const SizedBox(height: 1),
+              Text(subtitle, style: TextStyles.caption1.copyWith(color: palette.textSecondary)),
             ],
           ),
         ),
@@ -255,10 +381,7 @@ class _ChoiceRow extends StatelessWidget {
       onTap: enabled ? onTap : null,
       radius: Radii.row,
       selected: selected,
-      padding: const EdgeInsets.symmetric(
-        vertical: Insets.sm + 2,
-        horizontal: Insets.sm,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: Insets.sm, horizontal: Insets.sm),
       child: Row(
         children: [
           Expanded(
@@ -273,55 +396,21 @@ class _ChoiceRow extends StatelessWidget {
                   ),
                 ),
                 if (note != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    note!,
-                    style: TextStyles.caption1.copyWith(color: palette.textTertiary),
-                  ),
+                  const SizedBox(height: 1),
+                  Text(note!, style: TextStyles.caption1.copyWith(color: palette.textTertiary)),
                 ],
               ],
             ),
           ),
-          // The selection indicator. A colour change alone would fail for anyone
-          // who cannot distinguish the accent, so the checkmark carries the
-          // meaning and the tint only reinforces it.
+          // The checkmark carries the meaning and the tint reinforces it, so the
+          // selection does not depend on distinguishing a colour.
           if (selected)
-            Icon(Icons.check_rounded, size: 15, color: palette.accent)
+            Icon(Icons.check_rounded, size: 14, color: palette.accent)
           else if (!enabled)
-            Icon(Icons.lock_outline_rounded, size: 13, color: palette.textTertiary),
+            Icon(Icons.lock_outline_rounded, size: 12, color: palette.textTertiary),
         ],
       ),
     );
-  }
-}
-
-class _InstallButton extends StatelessWidget {
-  const _InstallButton({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        side: BorderSide(color: context.palette.glassBorder),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.pill)),
-        padding: const EdgeInsets.symmetric(horizontal: Insets.lg),
-      ),
-      child: Text('Install', style: TextStyles.headline.copyWith(color: context.palette.textPrimary)),
-    );
-  }
-}
-
-class _Toggle extends StatelessWidget {
-  const _Toggle({required this.value});
-
-  final bool value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Switch(value: value, onChanged: (_) {});
   }
 }
 
@@ -332,17 +421,11 @@ class _About extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Sosumi is an unofficial client and is not affiliated with Apple. '
-          'An active Apple Music subscription is required. See the project '
-          'documentation for the full legal scope.',
-          style: TextStyles.caption1.copyWith(color: palette.textSecondary),
-        ),
-      ],
+    return Text(
+      'Sosumi is an unofficial client and is not affiliated with Apple. '
+      'An active Apple Music subscription is required. See the project '
+      'documentation for the full legal scope.',
+      style: TextStyles.caption1.copyWith(color: context.palette.textTertiary),
     );
   }
 }

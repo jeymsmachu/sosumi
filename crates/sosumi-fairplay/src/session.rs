@@ -147,9 +147,7 @@ pub struct Session {
 
 impl std::fmt::Debug for Session {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Session")
-            .field("state", &*self.state.lock())
-            .finish_non_exhaustive()
+        f.debug_struct("Session").field("state", &*self.state.lock()).finish_non_exhaustive()
     }
 }
 
@@ -164,9 +162,7 @@ impl Session {
     pub fn new(handler: Box<dyn ChallengeHandler>) -> Result<Self, SignInError> {
         // `compare_exchange` rather than a load-then-store: two threads racing to
         // start a session is exactly the case the C library cannot survive.
-        if SESSION_TAKEN
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
+        if SESSION_TAKEN.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
         {
             return Err(SignInError::AlreadyInitialised);
         }
@@ -213,11 +209,7 @@ impl Session {
         // retains nothing or copies what it needs before returning. It is
         // documented as safe to call once, which the session guard enforces.
         let rc = unsafe {
-            ffi::hybris_backend_init(
-                linker_label.as_ptr(),
-                lib64.as_ptr(),
-                core_name.as_ptr(),
-            )
+            ffi::hybris_backend_init(linker_label.as_ptr(), lib64.as_ptr(), core_name.as_ptr())
         };
 
         if rc == 0 {
@@ -509,10 +501,7 @@ mod tests {
         let session = Session::new(Box::new(Rejecting)).expect("session");
         // No files in the manifest means `verify` reports NotInstalled, so the
         // load must fail without touching the C library.
-        assert!(matches!(
-            session.load_runtime(&layout),
-            Err(SignInError::RuntimeMissing)
-        ));
+        assert!(matches!(session.load_runtime(&layout), Err(SignInError::RuntimeMissing)));
     }
 
     #[test]
@@ -549,9 +538,6 @@ mod tests {
 
         // Exercises the trampoline's happy path without a live C library.
         let session = Session::new(Box::new(Answering)).expect("session");
-        assert_eq!(
-            session.handler.answer(AuthChallenge::TwoFactor).as_deref(),
-            Some("123456")
-        );
+        assert_eq!(session.handler.answer(AuthChallenge::TwoFactor).as_deref(), Some("123456"));
     }
 }

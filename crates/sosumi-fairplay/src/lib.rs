@@ -59,5 +59,5 @@ pub mod ffi;
 pub mod runtime;
 pub mod session;
 
-pub use runtime::{RuntimeLayout, RuntimeStatus};
-pub use session::{AuthChallenge, Session, SessionState, SignInError};
+pub use runtime::{InstallOutcome, PinnedFile, RuntimeLayout, RuntimeManifest, RuntimeStatus};
+pub use session::{AuthChallenge, ChallengeHandler, Session, SessionState, SignInError};

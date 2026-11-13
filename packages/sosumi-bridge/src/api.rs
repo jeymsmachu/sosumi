@@ -15,7 +15,9 @@ use flutter_rust_bridge::frb;
 
 use crate::frb_generated::StreamSink;
 
+use sosumi_core::capability::{CapabilityReport, Runtime, SharedRuntime};
 use sosumi_core::event::Event as CoreEvent;
+use sosumi_core::fairplay_sign_in::{SignIn, SignInEvent as CoreSignInEvent};
 use sosumi_core::queue::RepeatMode as CoreRepeat;
 use sosumi_core::{Session as CoreSession, Sosumi};
 use sosumi_provider_api::{
@@ -81,6 +83,37 @@ impl BridgeError {
 impl From<sosumi_provider_api::ProviderError> for BridgeError {
     fn from(err: sosumi_provider_api::ProviderError) -> Self {
         Self::from_provider(&err)
+    }
+}
+
+/// Maps a sign-in failure to something the form can show.
+///
+/// The variants are kept apart because the remedies differ: a missing component
+/// needs an install, a rejected password needs the user to read Apple's message,
+/// and a busy session needs a moment rather than a correction.
+impl From<sosumi_fairplay::SignInError> for BridgeError {
+    fn from(err: sosumi_fairplay::SignInError) -> Self {
+        use sosumi_fairplay::SignInError as E;
+        match &err {
+            E::RuntimeMissing => Self {
+                kind: "capability".into(),
+                message: "The lossless component is not installed".into(),
+                remedy: Some("Install it from Settings, then try again".into()),
+            },
+            E::AlreadyInitialised => Self {
+                kind: "busy".into(),
+                message: "A sign-in is already in progress".into(),
+                remedy: Some("Wait for it to finish, or cancel it".into()),
+            },
+            E::Unanswered => Self {
+                kind: "cancelled".into(),
+                message: "Sign-in was cancelled".into(),
+                remedy: None,
+            },
+            E::InteriorNul | E::Bridge(_) => {
+                Self { kind: "other".into(), message: err.to_string(), remedy: None }
+            }
+        }
     }
 }
 
@@ -195,6 +228,85 @@ pub struct SessionDto {
     pub storefront: String,
 }
 
+/// One step of a native sign-in.
+#[derive(Debug, Clone, Default)]
+pub struct SignInEventDto {
+    /// One of `started`, `code_required`, `preparing`, `succeeded`, or `failed`.
+    pub kind: String,
+    /// A message fit for the sign-in form, on failure.
+    pub message: Option<String>,
+}
+
+impl SignInEventDto {
+    fn from(event: CoreSignInEvent) -> Self {
+        match event {
+            CoreSignInEvent::Started => Self { kind: "started".into(), message: None },
+            CoreSignInEvent::CodeRequired => Self { kind: "code_required".into(), message: None },
+            CoreSignInEvent::Preparing => Self { kind: "preparing".into(), message: None },
+            CoreSignInEvent::Succeeded => Self { kind: "succeeded".into(), message: None },
+            CoreSignInEvent::Failed { message } => {
+                Self { kind: "failed".into(), message: Some(message) }
+            }
+        }
+    }
+
+    fn failed(message: &str) -> Self {
+        Self { kind: "failed".into(), message: Some(message.to_owned()) }
+    }
+}
+
+/// One optional capability, as the Settings screen renders it.
+#[derive(Debug, Clone, Default)]
+pub struct CapabilityDto {
+    /// Stable machine id, for example `fairplay`.
+    pub id: String,
+    /// Display name, for example "Lossless & Hi-Res".
+    pub name: String,
+    /// One of `ready`, `available`, `degraded`, or `unsupported`.
+    pub state: String,
+    /// One line explaining the state.
+    pub detail: String,
+    /// What the user can do, when there is something to do.
+    pub action: Option<String>,
+    /// The specific files missing, for an installable tier.
+    pub missing: Vec<String>,
+    /// True when the tier is installed and working.
+    pub ready: bool,
+}
+
+impl CapabilityDto {
+    /// Projects a capability report into the flat shape Dart holds.
+    fn from_report(report: &CapabilityReport, name: &str, id: &str) -> Self {
+        let (state, detail, action, missing) = match report {
+            CapabilityReport::Ready { detail } => {
+                ("ready".to_owned(), detail.clone(), None, Vec::new())
+            }
+            CapabilityReport::Installable { detail, missing } => (
+                "available".to_owned(),
+                detail.clone(),
+                Some("Install".to_owned()),
+                missing.clone(),
+            ),
+            CapabilityReport::Damaged { problems } => {
+                ("degraded".to_owned(), problems.join("; "), Some("Repair".to_owned()), Vec::new())
+            }
+            CapabilityReport::Unsupported { reason } => {
+                ("unsupported".to_owned(), reason.clone(), None, Vec::new())
+            }
+        };
+
+        Self {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            state,
+            detail,
+            action,
+            missing,
+            ready: report.to_health().status.is_ready(),
+        }
+    }
+}
+
 impl From<&CoreSession> for SessionDto {
     fn from(session: &CoreSession) -> Self {
         Self {
@@ -279,6 +391,11 @@ impl From<CoreEvent> for EventDto {
 pub struct Engine {
     inner: Arc<Sosumi>,
     runtime: tokio::runtime::Runtime,
+    /// The in-flight native sign-in, when there is one.
+    ///
+    /// Held so a second `begin_sign_in` replaces an abandoned attempt rather than
+    /// racing it, and so a code can be submitted to the attempt that asked.
+    sign_in: parking_lot::RwLock<Option<Arc<SignIn>>>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -304,7 +421,7 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
         .map_err(|e| BridgeError { kind: "other".into(), message: e.to_string(), remedy: None })?;
 
     let paths = Paths::resolve()?;
-    let mut app = Sosumi::new(paths)?;
+    let mut app = Sosumi::new(paths.clone())?;
 
     // The concrete providers are chosen here, at the outermost layer, so the
     // core stays free of any knowledge of Apple or of the filesystem.
@@ -320,6 +437,16 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
     // the app still browses, and the core reports the reason as an event.
     app.start_audio();
 
+    // Attach the optional lossless runtime. A missing manifest is not fatal: the
+    // app runs without the tier, and the capability reports the install as broken
+    // rather than offering one that cannot work.
+    match attach_runtime(&paths) {
+        Ok(runtime) => app.set_runtime(runtime),
+        Err(error) => {
+            tracing::warn!(target: "sosumi::bridge", %error, "lossless runtime unavailable");
+        }
+    }
+
     // Restore a previous sign-in so the user does not authenticate every launch.
     // A failure is not fatal: it means the store is unreadable, and signing in
     // again repairs it.
@@ -329,7 +456,51 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
         }
     }
 
-    Ok(Engine { inner: Arc::new(app), runtime })
+    Ok(Engine { inner: Arc::new(app), runtime, sign_in: parking_lot::RwLock::new(None) })
+}
+
+/// Locates the runtime manifest and resolves the payload layout.
+///
+/// The manifest ships beside the executable, so it is found relative to the
+/// binary rather than the working directory: an app launched from a desktop entry
+/// has no useful working directory, and a relative path would silently miss.
+fn attach_runtime(paths: &Paths) -> anyhow::Result<SharedRuntime> {
+    let manifest = discover_manifest()?;
+    let runtime = Runtime::load(&paths.runtime(), &manifest)?;
+    Ok(Arc::new(runtime))
+}
+
+/// Finds the runtime manifest.
+///
+/// Checked in order: an override for development, then beside the executable (the
+/// packaged layout), then the source tree (a `flutter run` from the repository).
+fn discover_manifest() -> anyhow::Result<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("SOSUMI_RUNTIME_MANIFEST") {
+        let path = std::path::PathBuf::from(path);
+        if path.is_file() {
+            return Ok(path);
+        }
+        anyhow::bail!("SOSUMI_RUNTIME_MANIFEST points at {}, which is not a file", path.display());
+    }
+
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // The packaged layout puts assets under the bundle's data directory.
+            candidates.push(dir.join("data/flutter_assets/assets/runtime.toml"));
+            candidates.push(dir.join("assets/runtime.toml"));
+        }
+    }
+    // A development run from the repository.
+    candidates.push(
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/desktop/assets/runtime.toml"),
+    );
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| anyhow::anyhow!("the runtime manifest was not found beside the executable"))
 }
 
 /// The sealing key for the local store.
@@ -563,6 +734,182 @@ impl Engine {
     #[must_use]
     pub fn audio_ready(&self) -> bool {
         self.inner.audio_ready()
+    }
+
+    /// Reports the optional capabilities this machine has.
+    ///
+    /// Read-only and local, so the Settings screen can call it freely.
+    #[must_use]
+    pub fn capabilities(&self) -> Vec<CapabilityDto> {
+        let mut report = Vec::with_capacity(4);
+
+        report.push(CapabilityDto::from_report(
+            &self.inner.lossless_capability(),
+            "Lossless & Hi-Res",
+            "fairplay",
+        ));
+
+        // Spatial Audio: whether an object renderer is installed. Probed by path
+        // rather than started, so the check is cheap.
+        //
+        // `sosumi_spatial::health` reports a `Health`, not a `CapabilityReport`,
+        // because the renderer makes no distinction between "installable" and
+        // "degraded": the downmix always works, and the only question is whether
+        // object rendering is available.
+        let cavern = sosumi_spatial::CavernRenderer::detect();
+        let spatial = sosumi_spatial::health(&cavern);
+        report.push(CapabilityDto {
+            id: "spatial".into(),
+            name: "Spatial Audio".into(),
+            state: if spatial.status.is_ready() { "ready" } else { "available" }.into(),
+            detail: spatial.detail,
+            action: spatial.action,
+            missing: Vec::new(),
+            ready: spatial.status.is_ready(),
+        });
+
+        // System media controls: present whenever a session bus is reachable.
+        report.push(if sosumi_linux::mpris::session_bus_available() {
+            CapabilityDto {
+                id: "mpris".into(),
+                name: "System Media Controls".into(),
+                state: "ready".into(),
+                detail: "Control playback from your desktop".into(),
+                action: None,
+                missing: Vec::new(),
+                ready: true,
+            }
+        } else {
+            CapabilityDto {
+                id: "mpris".into(),
+                name: "System Media Controls".into(),
+                state: "unsupported".into(),
+                detail: "No D-Bus session bus".into(),
+                action: None,
+                missing: Vec::new(),
+                ready: false,
+            }
+        });
+
+        // Discord presence: available when the local client is running.
+        report.push(if sosumi_discord::ipc::is_running() {
+            CapabilityDto {
+                id: "discord".into(),
+                name: "Discord Rich Presence".into(),
+                state: "ready".into(),
+                detail: "Show what you are listening to".into(),
+                action: None,
+                missing: Vec::new(),
+                ready: true,
+            }
+        } else {
+            CapabilityDto {
+                id: "discord".into(),
+                name: "Discord Rich Presence".into(),
+                state: "available".into(),
+                detail: "Discord is not running".into(),
+                action: Some("Start Discord".into()),
+                missing: Vec::new(),
+                ready: false,
+            }
+        });
+
+        report
+    }
+
+    /// Writes the stub libraries for the lossless tier.
+    ///
+    /// The half of installation that needs no network: the stubs are carried in
+    /// this binary. Apple's own files still have to be fetched, and
+    /// [`Engine::capabilities`] reports which ones are missing afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the runtime is not attached or the stubs cannot be written.
+    pub fn install_lossless_stubs(&self) -> Result<usize, BridgeError> {
+        self.inner.install_lossless_stubs().map_err(Into::into)
+    }
+
+    /// Whether a lossless sign-in has completed.
+    #[must_use]
+    pub fn lossless_signed_in(&self) -> bool {
+        self.inner.runtime().is_some_and(|runtime| runtime.has_session())
+    }
+
+    /// Starts a native sign-in to Apple.
+    ///
+    /// Returns immediately; progress arrives on [`Engine::watch_sign_in`]. The
+    /// work runs on a background thread because the underlying call blocks for
+    /// the whole login, including while it waits for a verification code.
+    ///
+    /// The password is moved into that thread, used for one call, and dropped. It
+    /// is never stored, logged, or returned.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the runtime is not attached, when a sign-in is already running,
+    /// or when the worker cannot start.
+    pub fn begin_sign_in(&self, email: String, password: String) -> Result<(), BridgeError> {
+        let runtime = self.inner.runtime().ok_or_else(|| BridgeError {
+            kind: "capability".into(),
+            message: "The lossless component is not installed".into(),
+            remedy: Some("Install it from Settings first".into()),
+        })?;
+
+        let layout = runtime.layout().clone();
+        let sign_in = SignIn::begin(layout, email, password)?;
+
+        *self.sign_in.write() = Some(Arc::new(sign_in));
+        Ok(())
+    }
+
+    /// Streams sign-in progress to the UI.
+    ///
+    /// Emits one event per state change until the attempt ends. A second call
+    /// while an attempt is running subscribes to the same attempt rather than
+    /// starting another.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no sign-in is in progress.
+    pub fn watch_sign_in(&self, sink: StreamSink<SignInEventDto>) {
+        let Some(sign_in) = self.sign_in.read().clone() else {
+            let _ = sink.add(SignInEventDto::failed("No sign-in is in progress"));
+            return;
+        };
+
+        let mut events = sign_in.subscribe();
+        self.runtime.spawn(async move {
+            while let Ok(event) = events.recv().await {
+                let terminal =
+                    matches!(event, CoreSignInEvent::Succeeded | CoreSignInEvent::Failed { .. });
+                if sink.add(SignInEventDto::from(event)).is_err() || terminal {
+                    break;
+                }
+            }
+        });
+    }
+
+    /// Supplies the verification code the bridge is waiting for.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no sign-in is in progress or the attempt already ended.
+    pub fn submit_sign_in_code(&self, code: String) -> Result<(), BridgeError> {
+        let sign_in = self.sign_in.read().clone().ok_or_else(|| BridgeError {
+            kind: "other".into(),
+            message: "No sign-in is in progress".into(),
+            remedy: None,
+        })?;
+        sign_in.submit_code(code).map_err(Into::into)
+    }
+
+    /// Gives up on a sign-in in progress.
+    pub fn cancel_sign_in(&self) {
+        if let Some(sign_in) = self.sign_in.read().clone() {
+            sign_in.abandon();
+        }
+        *self.sign_in.write() = None;
     }
 
     /// Pauses playback.
