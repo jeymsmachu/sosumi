@@ -11,6 +11,7 @@ first, but read in order for the reasoning.
 | [0004](0004-widevine-device-identity.md) | The user supplies the Widevine device identity | Accepted |
 | [0005](0005-offline-sealing.md) | Downloads are re-sealed under a keyring-held key | Accepted |
 | [0006](0006-native-audio-stack.md) | Symphonia + cpal, not libmpv or GStreamer | Accepted |
+| [0007](0007-in-process-fairplay.md) | Apple's FairPlay libraries load in-process through libhybris | Accepted |
 
 ## Template
 

@@ -102,6 +102,7 @@ these projects; no code was copied except where a licence permits and is noted.
 | [Adam](https://github.com/silentone12725/apple-music-linux) | MIT | End-to-end Apple Music on Linux; DRM layout; Cavern integration |
 | [musickit-sdk-linux](https://github.com/silentone12725/musickit-sdk-linux) | MIT | Engine decomposition and the HTTP API shape |
 | [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper) | MIT | The `FairPlay` exchange the optional tier builds on |
+| [libhybris](https://github.com/libhybris/libhybris) | Apache-2.0 | Loading bionic libraries from a glibc process (embedded) |
 | [Cavern](https://github.com/VoidXH/Cavern) | Custom (non-commercial, attribution) | Object-based rendering and the pipe protocol |
 | [Symphonia](https://github.com/pdeljanov/Symphonia) | MPL-2.0 | Pure-Rust audio decode |
 | [AMLL](https://github.com/amll-dev/applemusic-like-lyrics) | AGPL-3.0 | Lyrics presentation ideas only; no code used |
@@ -114,4 +115,5 @@ object-based audio is presented as "Spatial Audio".
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Third-party components and their terms are
+listed in [NOTICE.md](NOTICE.md).

@@ -37,13 +37,33 @@ The intent is to be a **client**, not a key source.
 
 ## The optional components
 
-Lossless, Hi-Res, and Spatial Audio require components Sosumi does not ship.
-Each is user-installed, detected at runtime, and shown in Settings with its own
-state. Nothing is fetched silently.
+Sign-in, lossless, Hi-Res, and Spatial Audio require components Sosumi does not
+ship. Each is user-installed, detected at runtime, and shown in Settings with its
+own state. Nothing is fetched silently.
+
+### What the `FairPlay` bridge does and does not do
+
+It drives **Apple's own libraries** to authenticate an account and to obtain keys
+for streams that account is entitled to. It is the same mechanism Apple's Android
+client uses.
+
+It does **not** decrypt audio independently, extract keys for redistribution,
+weaken any protection, or provide any way to play without a subscription. There is
+no code in this repository that circumvents a technical protection measure. The
+distinction is worth stating because "uses `FairPlay`" and "breaks `FairPlay`" are
+different things, and only the first is true here.
+
+Two consequences follow from the second sign-in:
+
+- It authenticates an account the user already pays for. Without an active
+  subscription the libraries reject the login; there is no bypass.
+- The credentials go to Apple. Sosumi stores the resulting session token, and
+  never the password.
 
 | Component | Who provides it | Sosumi's stance |
 |---|---|---|
-| Lossless / Hi-Res | Apple's Android `FairPlay` libraries | Not redistributed. Fetched only on explicit user action, checksum-verified, and this repository is fully functional without it. |
+| Sign-in and lossless keys | Apple's Android `FairPlay` libraries | Not redistributed. Fetched only on explicit user action, checksum-verified, and this repository is fully functional without it. |
+| Loader for those libraries | [libhybris](https://github.com/libhybris/libhybris), Apache-2.0 | Embedded as a build blob. It is a general-purpose compatibility loader, not a DRM tool. See `NOTICE.md`. |
 | Spatial Audio | Cavern (`CavernPipeServer`) | Not bundled. Its licence forbids sale and requires attribution, so Sosumi treats it as an external dependency and credits it. |
 
 ## Names and marks
