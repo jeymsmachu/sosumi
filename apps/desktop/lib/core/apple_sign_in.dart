@@ -26,9 +26,8 @@ final class SignInCancelled extends SignInResult {
 
 /// Sign-in cannot complete on this machine, with a reason worth showing.
 ///
-/// This is distinct from [SignInCancelled] and from a transient error: it means
-/// the environment lacks something Apple's page requires, and no amount of
-/// retrying will help.
+/// Distinct from [SignInCancelled] and from a transient error: it means the
+/// environment lacks something Apple's page requires.
 final class SignInUnavailable extends SignInResult {
   const SignInUnavailable(this.reason, this.detail);
 
@@ -56,38 +55,45 @@ final class SignInFailed extends SignInResult {
 /// no state machine here to reproduce and nothing to get wrong. When Apple
 /// changes its sign-in, their page changes and this keeps working.
 ///
-/// # Why the engine has to support Encrypted Media
+/// # What actually decides success
 ///
-/// Apple's page is not a plain form. It loads MusicKit on the Web, which
-/// registers a DRM key system as part of starting up. MusicKit asks the engine
-/// for `com.widevine.alpha`, `com.apple.fps`, or `com.microsoft.playready` via
-/// `navigator.requestMediaKeySystemAccess`. If the engine has no Encrypted Media
-/// support, that call does not exist, MusicKit's initialization fails, and Apple
-/// shows **"Authorization failed. Please log in to enjoy Apple Music."** — an
-/// error about MusicKit, not about the password or the verification code the
-/// user just entered correctly.
+/// Not the page's own reporting. Apple's account server sets the
+/// `media-user-token` cookie once the credentials are accepted, and that can
+/// happen before — or despite — anything the player reports afterwards. So this
+/// watches the cookie store rather than the page's text or its navigation.
 ///
-/// That is exactly the failure this code now detects *before* the user types
-/// anything, so nobody is asked to enter a password into a page that cannot
-/// finish.
+/// That matters here, because the page can show **"Authorization failed. Please
+/// log in to enjoy Apple Music."** while the session has in fact been
+/// established. That message comes from MusicKit failing to initialize, not from
+/// the account server rejecting the credentials, and treating it as failure would
+/// discard a perfectly good session.
 ///
-/// WebKitGTK as distributions build it has Encrypted Media disabled at compile
-/// time, so this is the common case on Linux rather than an edge case. See
-/// `docs/PLATFORM-LIMITS.md`.
+/// # Why the engine sometimes cannot finish
+///
+/// MusicKit registers a DRM key system while starting up, by asking the engine
+/// for `com.widevine.alpha`, `com.apple.fps`, or `com.microsoft.playready`
+/// through `navigator.requestMediaKeySystemAccess`. WebKitGTK as distributions
+/// build it has Encrypted Media compiled out, so that function does not exist and
+/// MusicKit cannot initialize. See `docs/PLATFORM-LIMITS.md`.
+///
+/// The API is probed and reported, but a missing API does not by itself end the
+/// attempt: the cookie is still awaited, because it is the only thing that
+/// actually proves a session exists.
 abstract final class AppleSignIn {
-  /// The host the sign-in page and the web player share.
-  static const _host = 'music.apple.com';
+  /// How often to check the cookie store while the user signs in.
+  static const _pollInterval = Duration(milliseconds: 700);
 
-  /// How long to wait for the session cookie after the redirect lands.
-  static const _cookieSettleDelay = Duration(milliseconds: 1500);
+  /// How long to keep watching before concluding it will not complete.
+  static const _sessionTimeout = Duration(minutes: 5);
 
-  /// How long to give the page before probing its capabilities.
-  static const _probeDelay = Duration(milliseconds: 1200);
+  /// How long to give the page before probing its engine capabilities.
+  static const _probeDelay = Duration(milliseconds: 2500);
 
-  /// Asks the engine whether it can resolve a DRM key system.
+  /// Reports whether the engine advertises Encrypted Media.
   ///
-  /// Returns `null` when the engine advertises Encrypted Media, or a
-  /// human-readable reason when it does not.
+  /// Returns `null` when it does, or a short reason when it does not. A probe
+  /// that cannot run returns a reason, because an unanswered question is not a
+  /// pass.
   static const _probeScript = '''
     (function () {
       if (typeof navigator.requestMediaKeySystemAccess !== 'function') {
@@ -137,7 +143,7 @@ abstract final class AppleSignIn {
 
     final completer = Completer<SignInResult>();
     var completed = false;
-    var probed = false;
+    var closed = false;
 
     void finish(SignInResult result) {
       if (completed) return;
@@ -145,44 +151,51 @@ abstract final class AppleSignIn {
       if (!completer.isCompleted) completer.complete(result);
     }
 
-    await webview.setOnUrlRequestCallback((url) {
-      // Probe once, as soon as Apple's page is up. Doing it before the user
-      // types means nobody enters a password into a form that cannot complete.
-      if (!probed && url.contains(_host)) {
-        probed = true;
-        unawaited(() async {
-          await Future<void>.delayed(_probeDelay);
-          final missing = await _probeEncryptedMedia(webview);
-          if (missing != null) {
-            finish(SignInUnavailable(
-              'Signing in needs a browser engine with protected-media support, '
-              'which this system\u2019s web view does not have.',
-              'navigator.requestMediaKeySystemAccess reported: $missing',
-            ));
-            await webview.close();
-          }
-        }());
+    // Probe the engine in the background. The result only shapes the message if
+    // nothing else works out; it never ends the attempt on its own.
+    final probe = Completer<String?>();
+    unawaited(() async {
+      await Future<void>.delayed(_probeDelay);
+      probe.complete(await _probeEncryptedMedia(webview));
+    }());
+
+    // Watch the cookie store. This is the only signal that proves a session.
+    unawaited(() async {
+      final deadline = DateTime.now().add(_sessionTimeout);
+      while (!completed && !closed && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(_pollInterval);
+        if (completed || closed) return;
+        final token = await _readCookie(webview, 'media-user-token');
+        if (token != null && token.isNotEmpty) {
+          final storefront = await _readCookie(webview, 'geo') ?? 'us';
+          finish(SignInSuccess(token, storefront.toLowerCase()));
+          await webview.close();
+          return;
+        }
       }
 
-      // Sign-in ends when navigation reaches the web player, which only happens
-      // once Apple has established the session.
-      if (url.contains(_host) && !url.contains('/signin') && !url.contains('/login')) {
-        unawaited(() async {
-          await Future<void>.delayed(_cookieSettleDelay);
-          final token = await _readCookie(webview, 'media-user-token');
-          if (token != null && token.isNotEmpty) {
-            final storefront = await _readCookie(webview, 'geo') ?? 'us';
-            finish(SignInSuccess(token, storefront.toLowerCase()));
-            await webview.close();
-          }
-        }());
+      // The deadline passed. If the engine also lacks Encrypted Media, that is
+      // the explanation; otherwise the user simply did not finish.
+      final missing = await probe.future;
+      if (missing != null) {
+        finish(SignInUnavailable(
+          'Signing in needs a browser engine with protected-media support, which '
+          'this system\u2019s web view does not have.',
+          'navigator.requestMediaKeySystemAccess reported: $missing',
+        ));
+        await webview.close();
+      } else {
+        finish(const SignInCancelled());
+        await webview.close();
       }
-      // Never block navigation: the page has to load.
-      return true;
-    });
+    }());
 
-    // Closing the window without authorising is a cancellation.
-    unawaited(webview.onClose.then((_) => finish(const SignInCancelled())));
+    await webview.setOnUrlRequestCallback((url) => true);
+
+    unawaited(webview.onClose.then((_) {
+      closed = true;
+      finish(const SignInCancelled());
+    }));
 
     try {
       await webview.launch('https://music.apple.com/us/home');
@@ -194,10 +207,6 @@ abstract final class AppleSignIn {
   }
 
   /// Evaluates the capability script in the page.
-  ///
-  /// Returns `null` when the engine supports Encrypted Media, or the reported
-  /// reason when it does not, or when the probe itself could not run — a probe
-  /// that cannot answer must not be treated as a pass.
   static Future<String?> _probeEncryptedMedia(Webview webview) async {
     try {
       final result = await webview.evaluateJavaScript(_probeScript);
@@ -214,11 +223,11 @@ abstract final class AppleSignIn {
     try {
       final cookies = await webview.getAllCookies();
       for (final cookie in cookies) {
-        if (cookie.name == name) return cookie.value;
+        if (cookie.name == name && cookie.value.isNotEmpty) return cookie.value;
       }
     } on Object {
       // The engine may not have a cookie store yet; a null result lets the
-      // caller retry on the next navigation rather than surfacing an error.
+      // caller retry on the next poll rather than surfacing an error.
     }
     return null;
   }
