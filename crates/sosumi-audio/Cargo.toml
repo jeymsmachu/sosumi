@@ -1,0 +1,27 @@
+[package]
+name = "sosumi-audio"
+description = "Decoding and audio output: Symphonia for decode, cpal for playback."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sosumi-diagnostics.workspace = true
+sosumi-provider-api.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+cpal.workspace = true
+parking_lot.workspace = true
+symphonia.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

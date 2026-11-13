@@ -6,6 +6,8 @@ members = [
   "crates/sosumi-provider-api",
   "crates/sosumi-security",
   "crates/sosumi-storage",
+  "crates/sosumi-audio",
+  "crates/sosumi-provider-apple",
 ]
 
 [workspace.package]

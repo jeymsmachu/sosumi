@@ -10,5 +10,5 @@
 pub mod artwork;
 pub mod naming;
 
-pub use artwork::ArtworkTemplate;
+pub use artwork::{normalize_color, readable_foreground, ArtworkTemplate};
 pub use naming::FilenameTemplate;
