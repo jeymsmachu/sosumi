@@ -2553,9 +2553,8 @@ class EngineImpl extends RustOpaque implements Engine {
 
   /// Starts the audio engine.
   ///
-  /// Called once after construction. A failure is reported through the event
-  /// stream rather than raised, because browsing must keep working on a
-  /// machine with no sound card.
+  /// Idempotent. The bridge already starts audio when it creates the engine,
+  /// so this exists for a caller that stopped it and wants it back.
   Future<void> startAudio() =>
       RustLib.instance.api.crateApiEngineStartAudio(that: this);
 

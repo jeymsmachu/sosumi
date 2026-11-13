@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `block_on`, `from_provider`, `parse_quality`, `parse_repeat`
+// These functions are ignored because they are not marked as `pub`: `block_on`, `default_music_directories`, `from_provider`, `parse_quality`, `parse_repeat`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`
 
 /// Builds the engine. The UI calls this once, at startup.
@@ -119,9 +119,8 @@ abstract class Engine implements RustOpaqueInterface {
 
   /// Starts the audio engine.
   ///
-  /// Called once after construction. A failure is reported through the event
-  /// stream rather than raised, because browsing must keep working on a
-  /// machine with no sound card.
+  /// Idempotent. The bridge already starts audio when it creates the engine,
+  /// so this exists for a caller that stopped it and wants it back.
   Future<void> startAudio();
 
   /// Stops playback and unloads the track.

@@ -178,11 +178,11 @@ class _EngineReadyState extends ConsumerState<_EngineReady> {
   void initState() {
     super.initState();
     // Attach after the first frame so the engine and the controller both exist.
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       final engine = ref.read(engineProvider).requireValue;
-      final player = ref.read(playerProvider.notifier);
-      player.attach(engine.watchEvents());
-      await player.startAudio();
+      // The bridge starts audio when it creates the engine; this only wires the
+      // event stream into the controller.
+      ref.read(playerProvider.notifier).attach(engine.watchEvents());
     });
   }
 

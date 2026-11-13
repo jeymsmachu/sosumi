@@ -2292,6 +2292,8 @@ dependencies = [
  "sosumi-core",
  "sosumi-diagnostics",
  "sosumi-provider-api",
+ "sosumi-provider-apple",
+ "sosumi-provider-local",
  "sosumi-security",
  "sosumi-storage",
  "tokio",

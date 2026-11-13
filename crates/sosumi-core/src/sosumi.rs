@@ -79,8 +79,14 @@ impl Sosumi {
     ///
     /// Absent by default rather than at construction, because a machine with no
     /// output device must still be able to browse. A failure here is logged and
-    /// reported as health, not raised to the caller.
+    /// reported as an event, not raised to the caller.
+    ///
+    /// Idempotent: a second call is a no-op, so a caller cannot accidentally
+    /// replace a running engine.
     pub fn start_audio(&self) {
+        if self.playback.read().is_some() {
+            return;
+        }
         match PlaybackEngine::new(self.events.clone()) {
             Ok(engine) => {
                 tracing::info!(target: "sosumi::core", "audio engine started");

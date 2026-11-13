@@ -149,18 +149,6 @@ class PlayerController extends StateNotifier<PlayerState> {
     }
   }
 
-  /// Starts the audio engine.
-  ///
-  /// Called once at startup. Failure is not fatal: browsing still works, and the
-  /// core reports the reason through the event stream.
-  Future<void> startAudio() async {
-    try {
-      await _engine.startAudio();
-    } on Exception catch (error) {
-      state = state.copyWith(error: '$error');
-    }
-  }
-
   /// Plays the next track in the queue.
   Future<void> next() async {
     try {

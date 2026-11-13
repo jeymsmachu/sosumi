@@ -22,6 +22,8 @@ use sosumi_provider_api::{
     AudioQuality as CoreQuality, ProviderId, SearchQuery as CoreSearchQuery, Track as CoreTrack,
     TrackId as CoreTrackId,
 };
+use sosumi_provider_apple::AppleMusicProvider;
+use sosumi_provider_local::LocalProvider;
 use sosumi_storage::Paths;
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -302,9 +304,40 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
         .map_err(|e| BridgeError { kind: "other".into(), message: e.to_string(), remedy: None })?;
 
     let paths = Paths::resolve()?;
-    let app = Sosumi::new(paths)?;
+    let mut app = Sosumi::new(paths)?;
+
+    // The concrete providers are chosen here, at the outermost layer, so the
+    // core stays free of any knowledge of Apple or of the filesystem.
+    app.register(Arc::new(AppleMusicProvider::new()?));
+
+    let music_dirs = default_music_directories();
+    if !music_dirs.is_empty() {
+        app.register(Arc::new(LocalProvider::new(music_dirs)));
+    }
+
+    // Start audio here, at the composition root, so playback is available as
+    // soon as the UI is ready. A machine with no output device is not an error:
+    // the app still browses, and the core reports the reason as an event.
+    app.start_audio();
 
     Ok(Engine { inner: Arc::new(app), runtime })
+}
+
+/// The directories to scan for local music.
+///
+/// The XDG music directory first, then the conventional fallback. A directory
+/// that does not exist is harmless: the provider skips it.
+fn default_music_directories() -> Vec<std::path::PathBuf> {
+    let mut directories = Vec::new();
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        let music = std::env::var_os("XDG_MUSIC_DIR")
+            .map_or_else(|| home.join("Music"), std::path::PathBuf::from);
+        directories.push(music);
+    }
+
+    directories
 }
 
 impl Engine {
@@ -490,9 +523,8 @@ impl Engine {
 
     /// Starts the audio engine.
     ///
-    /// Called once after construction. A failure is reported through the event
-    /// stream rather than raised, because browsing must keep working on a
-    /// machine with no sound card.
+    /// Idempotent. The bridge already starts audio when it creates the engine,
+    /// so this exists for a caller that stopped it and wants it back.
     pub fn start_audio(&self) {
         self.inner.start_audio();
     }
