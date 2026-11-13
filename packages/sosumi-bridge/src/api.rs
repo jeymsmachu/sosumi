@@ -457,6 +457,24 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
         }
     }
 
+    // Then prefer the native session, when there is one, over the restored copy.
+    // Apple's library refreshes `MUSIC_TOKEN` on every launch, so the file on disk
+    // is newer than what was persisted at the last sign-in; without this the app
+    // would run on an expired token until the user signed in again. The developer
+    // token, which the native flow never writes, is kept from the restored session.
+    if let Some(native) =
+        app.runtime().and_then(|runtime| native_session(&runtime.layout().session).ok())
+    {
+        let mut session = app.session();
+        session.set_music_user_token(native.token);
+        if let Some(storefront) = native.storefront {
+            session.set_storefront(storefront);
+        }
+        if let Err(error) = app.set_session(session) {
+            tracing::warn!(target: "sosumi::bridge", %error, "could not apply the native session");
+        }
+    }
+
     // Sized for the handful of events one attempt emits, with slack for a
     // subscriber that is briefly slow.
     let (sign_in_events, _) = tokio::sync::broadcast::channel(32);
@@ -467,6 +485,55 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
         sign_in_events,
         sign_in: parking_lot::RwLock::new(None),
     })
+}
+
+/// Reads a small text file, trimming the trailing newline the C library writes.
+///
+/// Returns `None` when the file is absent or empty, which is the ordinary state
+/// before a sign-in rather than an error.
+fn read_trimmed(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let trimmed = text.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// The session the native flow wrote to disk, or the reason it wrote none.
+///
+/// A struct rather than a [`CoreSession`] because the two fields have different
+/// weight: the token is required and its absence is the failure, while the
+/// storefront is optional and must *not* be defaulted here — the caller merges it
+/// into a session that may already carry a better value, and inventing `us` would
+/// overwrite it.
+#[derive(Debug)]
+struct NativeSession {
+    /// The subscriber token. Present whenever the native flow completed.
+    token: String,
+    /// The two-letter storefront, when the file was readable and recognisable.
+    storefront: Option<String>,
+}
+
+/// Reads what the native flow wrote to disk.
+///
+/// A free function rather than a method because two callers need it: adoption
+/// after a sign-in, and the startup refresh. Keeping it in one place means the
+/// on-disk contract is read the same way in both.
+///
+/// # Errors
+///
+/// Fails when `MUSIC_TOKEN` is absent or empty, which is the ordinary state
+/// before any sign-in.
+fn native_session(session_dir: &std::path::Path) -> Result<NativeSession, BridgeError> {
+    let token = read_trimmed(&session_dir.join("MUSIC_TOKEN")).ok_or_else(|| BridgeError {
+        kind: "not_authenticated".into(),
+        message: "Apple did not return a session token".into(),
+        remedy: Some("Try signing in again".into()),
+    })?;
+
+    let storefront = read_trimmed(&session_dir.join("STOREFRONT_ID"))
+        .as_deref()
+        .and_then(sosumi_provider_apple::storefront::region_for);
+
+    Ok(NativeSession { token, storefront })
 }
 
 /// Locates the runtime manifest and resolves the payload layout.
@@ -700,6 +767,10 @@ impl Engine {
     /// also written to the encrypted store, so a restart does not require
     /// signing in again.
     ///
+    /// The token is merged into the existing session rather than replacing it,
+    /// keeping the developer token the app discovered separately; replacing would
+    /// leave a session that reports signed in but cannot play.
+    ///
     /// # Errors
     ///
     /// Fails when the store cannot be written. The in-memory session is still
@@ -709,7 +780,7 @@ impl Engine {
         music_user_token: String,
         storefront: String,
     ) -> Result<SessionDto, BridgeError> {
-        let mut session = CoreSession::new();
+        let mut session = self.inner.session();
         session.set_music_user_token(music_user_token);
         session.set_storefront(storefront);
 
@@ -723,12 +794,23 @@ impl Engine {
     }
 
     /// Signs out and clears the persisted session.
+    ///
+    /// The native flow's own token files are removed too. They are what the
+    /// startup refresh reads, so leaving them behind would sign the user back in
+    /// on the next launch — a sign-out that quietly undoes itself. The storefront
+    /// is kept, since it says where the account was rather than who it was.
     pub fn sign_out(&self) {
         let mut session = CoreSession::new();
         session.set_storefront(self.inner.session().storefront);
         let _ = self.inner.set_session(session);
         if let Ok(sealer) = machine_sealer() {
             let _ = self.inner.persist_session(sealer);
+        }
+        if let Some(runtime) = self.inner.runtime() {
+            let session_dir = &runtime.layout().session;
+            for name in ["MUSIC_TOKEN", "STOREFRONT_ID"] {
+                let _ = std::fs::remove_file(session_dir.join(name));
+            }
         }
     }
 
@@ -923,6 +1005,54 @@ impl Engine {
         sign_in.submit_code(code).map_err(Into::into)
     }
 
+    /// Reads the session the native sign-in wrote and hands it to the providers.
+    ///
+    /// This is the step that makes signing in actually take effect. The native
+    /// bridge writes `MUSIC_TOKEN` and `STOREFRONT_ID` into its own session
+    /// directory, and until those reach the providers every request stays
+    /// unauthenticated — so a successful sign-in would look like a broken one,
+    /// with search returning "not authenticated" and no explanation for why.
+    ///
+    /// The current session is *updated* rather than replaced. The native flow
+    /// supplies a subscriber token and a storefront but no developer token, which
+    /// the app obtains separately; replacing the session would drop that token and
+    /// leave a session that reports signed in but cannot play.
+    ///
+    /// Returns the session as the app now sees it.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the lossless component is not attached, or when it finished
+    /// without writing a token.
+    pub fn adopt_native_session(&self) -> Result<SessionDto, BridgeError> {
+        let runtime = self.inner.runtime().ok_or_else(|| BridgeError {
+            kind: "capability".into(),
+            message: "The lossless component is not installed".into(),
+            remedy: Some("Install it from Settings first".into()),
+        })?;
+
+        let native = native_session(&runtime.layout().session)?;
+
+        // Merged with what is already known, so a developer token obtained on an
+        // earlier run is not thrown away by a sign-in that never had one, and a
+        // storefront the native flow did not report is left as it was.
+        let mut session = self.inner.session();
+        session.set_music_user_token(native.token);
+        if let Some(storefront) = native.storefront {
+            session.set_storefront(storefront);
+        }
+
+        // Propagated to the providers as well as stored, which is what makes the
+        // *next* request authenticated rather than the next restart.
+        self.inner.set_session(session)?;
+
+        if let Ok(sealer) = machine_sealer() {
+            let _ = self.inner.persist_session(sealer);
+        }
+
+        Ok(SessionDto::from(&self.inner.session()))
+    }
+
     /// Gives up on a sign-in in progress.
     pub fn cancel_sign_in(&self) {
         if let Some(sign_in) = self.sign_in.read().clone() {
@@ -1059,6 +1189,48 @@ mod tests {
         assert_eq!(parse_repeat("all"), CoreRepeat::All);
         assert_eq!(parse_repeat("one"), CoreRepeat::One);
         assert_eq!(parse_repeat("anything else"), CoreRepeat::Off);
+    }
+
+    #[test]
+    fn a_native_session_is_read_with_its_translated_storefront() {
+        // The real files Apple's wrapper writes: `143467-2,31` is India, and the
+        // token carries a trailing newline. Both have to survive the read, since a
+        // numeric storefront would be sent as a path segment and a trailing
+        // newline would make every request malformed.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        std::fs::write(dir.path().join("MUSIC_TOKEN"), "abc123\n").expect("a token");
+        std::fs::write(dir.path().join("STOREFRONT_ID"), "143467-2,31").expect("a storefront");
+
+        let session = native_session(dir.path()).expect("a native session");
+
+        assert_eq!(session.token, "abc123");
+        assert_eq!(session.storefront.as_deref(), Some("in"));
+    }
+
+    #[test]
+    fn a_native_session_without_a_storefront_has_none() {
+        // Not defaulted here: the caller merges into a session that may already
+        // hold a better storefront, and inventing `us` would overwrite it.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        std::fs::write(dir.path().join("MUSIC_TOKEN"), "abc123").expect("a token");
+
+        let session = native_session(dir.path()).expect("a native session");
+
+        assert_eq!(session.token, "abc123");
+        assert_eq!(session.storefront, None);
+    }
+
+    #[test]
+    fn a_native_session_without_a_token_is_an_error() {
+        // The ordinary pre-sign-in state, and the one that must not be read as
+        // success: adopting a tokenless session would report signed in with
+        // nothing to send.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        std::fs::write(dir.path().join("STOREFRONT_ID"), "143441-1,29").expect("a storefront");
+
+        let error = native_session(dir.path()).expect_err("no token, no session");
+
+        assert_eq!(error.kind, "not_authenticated");
     }
 
     #[test]

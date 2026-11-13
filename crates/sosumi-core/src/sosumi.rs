@@ -250,19 +250,19 @@ impl Sosumi {
         self.session.read().clone()
     }
 
-    /// Replaces the session, for example after sign-in.
-    /// Replaces the session and persists it.
+    /// Replaces the in-memory session and hands it to every provider.
     ///
-    /// The session is stored, written to the encrypted store, *and* handed to
-    /// every provider, which is what makes sign-in take effect. Storing it alone
-    /// would leave providers serving unauthenticated requests while the UI
-    /// reported success.
+    /// This is what makes sign-in take effect for the current run: storing the
+    /// session without telling the providers would leave them serving
+    /// unauthenticated requests while the UI reported success. It does not write
+    /// to the encrypted store — call [`Sosumi::persist_session`] for that, and the
+    /// two are separate so a failed write costs persistence rather than the
+    /// current sign-in.
     ///
     /// # Errors
     ///
-    /// Returns a provider error when the store cannot be written. The in-memory
-    /// session is still applied, so a failed write costs persistence rather than
-    /// the current sign-in.
+    /// Currently infallible; the result is kept so a future provider that can
+    /// reject an account does not force a signature change at every call site.
     pub fn set_session(&self, session: Session) -> Result<()> {
         let signed_in = session.is_signed_in();
         let account = sosumi_provider_api::Account {

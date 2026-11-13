@@ -18,6 +18,7 @@ pub mod catalog;
 pub mod client;
 pub mod hls;
 pub mod provider;
+pub mod storefront;
 pub mod token;
 pub mod webplayback;
 

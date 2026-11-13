@@ -6,7 +6,7 @@
 //! restart does not require signing in again.
 //!
 //! It deliberately does not know how sign-in happens; that belongs to the UI,
-//! which drives a web view. It only holds and validates what it is given.
+//! which drives the native flow. It only holds and validates what it is given.
 
 use serde::{Deserialize, Serialize};
 use sosumi_storage::SecretStore;

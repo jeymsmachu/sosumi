@@ -2423,6 +2423,7 @@ dependencies = [
  "sosumi-security",
  "sosumi-spatial",
  "sosumi-storage",
+ "tempfile",
  "tokio",
  "tracing",
 ]

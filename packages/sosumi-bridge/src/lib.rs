@@ -14,6 +14,9 @@
 //!    the audio path is driven from Rust.
 
 #![deny(unsafe_code)]
+// Tests may unwrap and expect: a panic in a test is a failed assertion, not a
+// production crash, and `unwrap` keeps the assertions readable.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod api;
 // The generated bindings are machine-written and use `unsafe` and `unwrap`

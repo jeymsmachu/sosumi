@@ -211,9 +211,22 @@ Future<void> showSignIn(BuildContext context, WidgetRef ref) async {
   final succeeded = await SignInSheet.show(context);
   if (!succeeded || !context.mounted) return;
 
-  // The session files are written by the bridge, so the app only has to refresh
-  // what it shows. A refresh rather than a state change: the source of truth is
-  // the runtime on disk, not this widget.
+  // Adopted, not merely refreshed: the native flow wrote the token into its own
+  // store, and reading the app's session back without adopting would report an
+  // unauthenticated session even though the sign-in just succeeded.
+  //
+  // Reported rather than thrown: the sign-in did succeed, and an unhandled
+  // exception out of a void callback would read as a crash. Apple's own reason
+  // is surfaced when there is one.
+  try {
+    await ref.read(sessionProvider.notifier).adoptNativeSession();
+  } on Exception catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Signed in, but the session could not be loaded: $error')),
+    );
+    return;
+  }
+  if (!context.mounted) return;
   ref.invalidate(capabilitiesProvider);
-  unawaited(ref.read(sessionProvider.notifier).refresh());
 }

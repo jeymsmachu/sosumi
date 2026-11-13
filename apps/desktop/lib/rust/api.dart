@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `attach_runtime`, `block_on`, `default_music_directories`, `discover_manifest`, `from_provider`, `from_report`, `from`, `machine_sealer`, `parse_quality`, `parse_repeat`
+// These functions are ignored because they are not marked as `pub`: `adopted_session`, `attach_runtime`, `block_on`, `default_music_directories`, `discover_manifest`, `from_provider`, `from_report`, `from`, `machine_sealer`, `parse_quality`, `parse_repeat`, `read_trimmed`, `resolve_storefront`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Builds the engine. The UI calls this once, at startup.
@@ -27,6 +27,27 @@ Future<List<String>> knownProviders() =>
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Engine>>
 abstract class Engine implements RustOpaqueInterface {
+  /// Reads the session the native sign-in wrote and hands it to the providers.
+  ///
+  /// This is the step that makes signing in actually take effect. The native
+  /// bridge writes `MUSIC_TOKEN` and `STOREFRONT_ID` into its own session
+  /// directory, and until those reach the providers every request stays
+  /// unauthenticated — so a successful sign-in would look like a broken one,
+  /// with search returning "not authenticated" and no explanation for why.
+  ///
+  /// The current session is *updated* rather than replaced. The native flow
+  /// supplies a subscriber token and a storefront but no developer token, which
+  /// the app obtains separately; replacing the session would drop that token and
+  /// leave a session that reports signed in but cannot play.
+  ///
+  /// Returns the session as the app now sees it.
+  ///
+  /// # Errors
+  ///
+  /// Fails when the lossless component is not attached, or when it finished
+  /// without writing a token.
+  Future<SessionDto> adoptNativeSession();
+
   /// True when audio output is available.
   Future<bool> audioReady();
 

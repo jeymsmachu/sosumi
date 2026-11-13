@@ -152,7 +152,14 @@ class _SignInSheetState extends ConsumerState<SignInSheet> {
 
     final engine = ref.read(engineProvider).requireValue;
 
-    // Subscribe before starting, so an event emitted immediately is not missed.
+    // Cancel any previous subscription first. A retry reaches here again, and
+    // leaving the old listener attached would handle every event twice — two
+    // pops on success, which closes a screen the user did not ask to close.
+    await _events?.cancel();
+
+    // Subscribed before starting, so an event emitted immediately is not missed.
+    // This is safe in that order because the channel belongs to the engine rather
+    // than to the attempt.
     _events = engine.watchSignIn().listen(_onEvent);
 
     try {

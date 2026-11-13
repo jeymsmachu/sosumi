@@ -15,6 +15,9 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [lints]
 workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [dependencies]
 sosumi-core.workspace = true
 sosumi-fairplay.workspace = true

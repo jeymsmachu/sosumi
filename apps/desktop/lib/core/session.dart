@@ -52,8 +52,14 @@ class SessionController extends StateNotifier<SessionState> {
 
   final Engine _engine;
 
-  Future<void> _refresh() async {
-    final dto = await _engine.session();
+  Future<void> _refresh() => _apply(_engine.session());
+
+  /// Mirrors a bridge session into the display state.
+  ///
+  /// Every path that changes the session ends here, so there is one place that
+  /// decides what the UI reads rather than one copy of the mapping per call.
+  Future<void> _apply(Future<SessionDto> pending) async {
+    final dto = await pending;
     state = SessionState(
       signedIn: dto.signedIn,
       playable: dto.playable,
@@ -67,17 +73,16 @@ class SessionController extends StateNotifier<SessionState> {
   Future<void> setSession({
     required String musicUserToken,
     required String storefront,
-  }) async {
-    final dto = await _engine.setSession(
-      musicUserToken: musicUserToken,
-      storefront: storefront,
-    );
-    state = SessionState(
-      signedIn: dto.signedIn,
-      playable: dto.playable,
-      storefront: dto.storefront,
-    );
-  }
+  }) => _apply(
+    _engine.setSession(musicUserToken: musicUserToken, storefront: storefront),
+  );
+
+  /// Takes up the session the native sign-in wrote, then mirrors it.
+  ///
+  /// Called after a successful sign-in. The native flow holds the token in its
+  /// own store, and only this call hands it to the providers — without it the
+  /// sign-in succeeds and every request still answers "not authenticated".
+  Future<void> adoptNativeSession() => _apply(_engine.adoptNativeSession());
 
   /// Signs out and clears local session state.
   Future<void> signOut() async {
