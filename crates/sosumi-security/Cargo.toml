@@ -1,0 +1,37 @@
+[package]
+name = "sosumi-security"
+description = "Optional capability registry, offline file sealing, and the Widevine software CDM."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sosumi-diagnostics.workspace = true
+anyhow.workspace = true
+aes.workspace = true
+aes-gcm.workspace = true
+cbc.workspace = true
+ctr.workspace = true
+base64.workspace = true
+bytes.workspace = true
+hex.workspace = true
+hmac.workspace = true
+prost.workspace = true
+rand.workspace = true
+rsa.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

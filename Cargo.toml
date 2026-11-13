@@ -1,0 +1,131 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/sosumi-diagnostics",
+  "crates/sosumi-metadata",
+  "crates/sosumi-provider-api",
+  "crates/sosumi-security",
+  "crates/sosumi-storage",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+repository = "https://github.com/jeymsmachu/sosumi"
+authors = ["Sosumi contributors"]
+
+[workspace.dependencies]
+# Internal crates
+sosumi-diagnostics = { path = "crates/sosumi-diagnostics" }
+sosumi-metadata = { path = "crates/sosumi-metadata" }
+sosumi-provider-api = { path = "crates/sosumi-provider-api" }
+sosumi-security = { path = "crates/sosumi-security" }
+sosumi-storage = { path = "crates/sosumi-storage" }
+sosumi-provider-local = { path = "crates/sosumi-provider-local" }
+sosumi-provider-apple = { path = "crates/sosumi-provider-apple" }
+sosumi-spatial = { path = "crates/sosumi-spatial" }
+sosumi-audio = { path = "crates/sosumi-audio" }
+sosumi-library = { path = "crates/sosumi-library" }
+sosumi-linux = { path = "crates/sosumi-linux" }
+sosumi-discord = { path = "crates/sosumi-discord" }
+sosumi-core = { path = "crates/sosumi-core" }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+futures = "0.3"
+async-trait = "0.1"
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Errors and logging
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# HTTP
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+  "stream",
+  "gzip",
+] }
+url = "2"
+
+# Encoding / crypto primitives
+base64 = "0.22"
+hex = "0.4"
+bytes = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+regex = "1"
+once_cell = "1"
+parking_lot = "0.12"
+flume = "0.11"
+
+# Crypto (Widevine L3 + offline sealing)
+rsa = { version = "0.9", features = ["sha2"] }
+aes = "0.8"
+aes-gcm = "0.10"
+cbc = { version = "0.1", features = ["alloc"] }
+ctr = { version = "0.9", features = ["alloc"] }
+cmac = "0.7"
+sha1 = { version = "0.10", features = ["oid"] }
+sha2 = "0.10"
+hmac = "0.12"
+prost = "0.13"
+prost-build = "0.13"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+
+# Audio
+symphonia = { version = "0.5", features = ["all"] }
+cpal = "0.15"
+
+# Platform integration
+keyring = { version = "3", features = ["sync-secret-service", "vendored"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+# Dev
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+# Workspace-wide lint policy. Every crate opts in with `[lints] workspace = true`.
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "warn"

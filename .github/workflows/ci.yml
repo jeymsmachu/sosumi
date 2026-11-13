@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace --all-targets
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check links in docs
+        run: |
+          set -euo pipefail
+          # Fail if a referenced docs file does not exist.
+          while IFS= read -r link; do
+            target="${link%%#*}"
+            [ -z "$target" ] && continue
+            if [ ! -e "$target" ]; then
+              echo "broken docs link: $link"
+              exit 1
+            fi
+          done < <(grep -rhoE '\]\(([^):#][^)]*\.md)\)' docs README.md CONTRIBUTING.md \
+            | sed -E 's/^\]\(//; s/\)$//' | sort -u)

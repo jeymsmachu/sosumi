@@ -1,0 +1,22 @@
+[package]
+name = "sosumi-provider-api"
+description = "Provider-agnostic domain model and the MediaProvider contract."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sosumi-diagnostics.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+futures.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true

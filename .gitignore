@@ -1,0 +1,51 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+**/generated_plugin_registrant.*
+**/generated_plugins.cmake
+**/ephemeral/
+
+# flutter_rust_bridge codegen output
+packages/sosumi-bridge/src/frb_generated.rs
+packages/sosumi-bridge/lib/src/frb_generated.dart
+packages/sosumi-bridge/lib/src/frb_generated.io.dart
+packages/sosumi-bridge/lib/src/frb_generated.web.dart
+packages/sosumi-bridge/flutter_rust_bridge.yaml
+
+# Secrets and user data — never commit
+.env
+*.key
+*.pem
+*.p12
+secrets/
+**/device_private_key
+**/device_client_id_blob
+**/cookies.json
+/tmp/
+
+# Runtime capability payloads (user-supplied; never redistributed)
+runtime/
+third_party/apple/
+third_party/cavern/
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reference material cloned locally for study only; never committed
+/.references/
