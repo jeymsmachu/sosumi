@@ -13,6 +13,8 @@ use std::sync::Arc;
 
 use flutter_rust_bridge::frb;
 
+use crate::frb_generated::StreamSink;
+
 use sosumi_core::event::Event as CoreEvent;
 use sosumi_core::queue::RepeatMode as CoreRepeat;
 use sosumi_core::{Session as CoreSession, Sosumi};
@@ -99,7 +101,7 @@ pub struct TrackDto {
     pub artwork_url: Option<String>,
     pub animated_artwork_url: Option<String>,
     pub dominant_color: Option<String>,
-    pub duration_ms: Option<u64>,
+    pub duration_ms: Option<u32>,
 }
 
 impl From<&CoreTrack> for TrackDto {
@@ -112,7 +114,7 @@ impl From<&CoreTrack> for TrackDto {
             artwork_url: track.artwork.as_ref().map(|a| a.url.clone()),
             animated_artwork_url: track.artwork.as_ref().and_then(|a| a.animated_url.clone()),
             dominant_color: track.artwork.as_ref().and_then(|a| a.dominant_color.clone()),
-            duration_ms: track.duration_ms,
+            duration_ms: track.duration_ms.and_then(|ms| u32::try_from(ms).ok()),
         }
     }
 }
@@ -216,9 +218,9 @@ pub struct EventDto {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub artwork_url: Option<String>,
-    pub duration_ms: Option<u64>,
-    pub position_ms: Option<u64>,
-    pub queue_length: Option<usize>,
+    pub duration_ms: Option<u32>,
+    pub position_ms: Option<u32>,
+    pub queue_length: Option<u32>,
     pub message: Option<String>,
     pub signed_in: Option<bool>,
 }
@@ -232,7 +234,7 @@ impl From<CoreEvent> for EventDto {
                 dto.track_id = Some(track.as_str().to_owned());
                 dto.title = Some(title);
                 dto.artist = Some(artist);
-                dto.duration_ms = duration_ms;
+                dto.duration_ms = duration_ms.and_then(|ms| u32::try_from(ms).ok());
                 dto.artwork_url = artwork_url;
             }
             CoreEvent::Playing => dto.kind = "playing".into(),
@@ -241,11 +243,11 @@ impl From<CoreEvent> for EventDto {
             CoreEvent::Ended => dto.kind = "ended".into(),
             CoreEvent::Position { position_ms } => {
                 dto.kind = "position".into();
-                dto.position_ms = Some(position_ms);
+                dto.position_ms = u32::try_from(position_ms).ok();
             }
             CoreEvent::QueueChanged { length } => {
                 dto.kind = "queue_changed".into();
-                dto.queue_length = Some(length);
+                dto.queue_length = u32::try_from(length).ok();
             }
             CoreEvent::QualityChanged { quality } => {
                 dto.kind = "quality_changed".into();
@@ -504,6 +506,24 @@ impl Engine {
         };
         self.inner.set_repeat(parsed);
         label.to_owned()
+    }
+
+    /// Streams core events to the UI.
+    ///
+    /// The Rust core publishes to a broadcast bus; this method subscribes and
+    /// forwards onto a Dart `Stream`. Call it once: the UI fans the single
+    /// subscription out itself, which keeps one consumer on the Rust side.
+    ///
+    /// The stream ends when the engine is dropped.
+    pub fn watch_events(&self, sink: StreamSink<EventDto>) {
+        let mut receiver = self.inner.subscribe();
+        self.runtime.spawn(async move {
+            while let Some(event) = receiver.next().await {
+                if sink.add(EventDto::from(event)).is_err() {
+                    break;
+                }
+            }
+        });
     }
 
     /// The operating system this build targets.

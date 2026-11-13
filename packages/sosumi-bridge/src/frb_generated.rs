@@ -40,7 +40,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1489450379;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1865920878;
 
 // Section: executor
 
@@ -853,6 +853,61 @@ fn wire__crate__api__Engine_track_impl(
         },
     )
 }
+fn wire__crate__api__Engine_watch_events_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "Engine_watch_events",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<
+                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Engine>,
+            >>::sse_decode(&mut deserializer);
+            let api_sink = <StreamSink<
+                crate::api::EventDto,
+                flutter_rust_bridge::for_generated::SseCodec,
+            >>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let mut api_that_guard = None;
+                    let decode_indices_ =
+                        flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(
+                                &api_that, 0, false,
+                            ),
+                        ]);
+                    for i in decode_indices_ {
+                        match i {
+                            0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
+                            _ => unreachable!(),
+                        }
+                    }
+                    let api_that_guard = api_that_guard.unwrap();
+                    let output_ok = Ok::<_, ()>({
+                        crate::api::Engine::watch_events(&*api_that_guard, api_sink);
+                    })?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__album_dto_default_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1247,6 +1302,14 @@ flutter_rust_bridge::frb_generated_moi_arc_impl_value!(
 
 // Section: dart2rust
 
+impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return flutter_rust_bridge::for_generated::anyhow::anyhow!("{}", inner);
+    }
+}
+
 impl SseDecode for Engine {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1262,6 +1325,14 @@ impl SseDecode for RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpa
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <usize>::sse_decode(deserializer);
         return decode_rust_opaque_moi(inner);
+    }
+}
+
+impl SseDecode for StreamSink<crate::api::EventDto, flutter_rust_bridge::for_generated::SseCodec> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <String>::sse_decode(deserializer);
+        return StreamSink::deserialize(inner);
     }
 }
 
@@ -1332,9 +1403,9 @@ impl SseDecode for crate::api::EventDto {
         let mut var_title = <Option<String>>::sse_decode(deserializer);
         let mut var_artist = <Option<String>>::sse_decode(deserializer);
         let mut var_artworkUrl = <Option<String>>::sse_decode(deserializer);
-        let mut var_durationMs = <Option<u64>>::sse_decode(deserializer);
-        let mut var_positionMs = <Option<u64>>::sse_decode(deserializer);
-        let mut var_queueLength = <Option<usize>>::sse_decode(deserializer);
+        let mut var_durationMs = <Option<u32>>::sse_decode(deserializer);
+        let mut var_positionMs = <Option<u32>>::sse_decode(deserializer);
+        let mut var_queueLength = <Option<u32>>::sse_decode(deserializer);
         let mut var_message = <Option<String>>::sse_decode(deserializer);
         let mut var_signedIn = <Option<bool>>::sse_decode(deserializer);
         return crate::api::EventDto {
@@ -1521,17 +1592,6 @@ impl SseDecode for Option<u64> {
     }
 }
 
-impl SseDecode for Option<usize> {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        if (<bool>::sse_decode(deserializer)) {
-            return Some(<usize>::sse_decode(deserializer));
-        } else {
-            return None;
-        }
-    }
-}
-
 impl SseDecode for crate::api::PlaylistDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1590,7 +1650,7 @@ impl SseDecode for crate::api::TrackDto {
         let mut var_artworkUrl = <Option<String>>::sse_decode(deserializer);
         let mut var_animatedArtworkUrl = <Option<String>>::sse_decode(deserializer);
         let mut var_dominantColor = <Option<String>>::sse_decode(deserializer);
-        let mut var_durationMs = <Option<u64>>::sse_decode(deserializer);
+        let mut var_durationMs = <Option<u32>>::sse_decode(deserializer);
         return crate::api::TrackDto {
             id: var_id,
             title: var_title,
@@ -1669,18 +1729,19 @@ fn pde_ffi_dispatcher_primary_impl(
         14 => wire__crate__api__Engine_sign_out_impl(port, ptr, rust_vec_len, data_len),
         15 => wire__crate__api__Engine_storefront_impl(port, ptr, rust_vec_len, data_len),
         16 => wire__crate__api__Engine_track_impl(port, ptr, rust_vec_len, data_len),
-        17 => wire__crate__api__album_dto_default_impl(port, ptr, rust_vec_len, data_len),
-        18 => wire__crate__api__artist_dto_default_impl(port, ptr, rust_vec_len, data_len),
-        19 => wire__crate__api__create_engine_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__event_dto_default_impl(port, ptr, rust_vec_len, data_len),
-        21 => wire__crate__api__known_providers_impl(port, ptr, rust_vec_len, data_len),
-        22 => wire__crate__api__lyric_line_dto_default_impl(port, ptr, rust_vec_len, data_len),
-        23 => wire__crate__api__lyrics_dto_default_impl(port, ptr, rust_vec_len, data_len),
-        24 => wire__crate__api__playlist_dto_default_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__search_results_dto_default_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__search_results_dto_is_empty_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__session_dto_default_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__track_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        17 => wire__crate__api__Engine_watch_events_impl(port, ptr, rust_vec_len, data_len),
+        18 => wire__crate__api__album_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        19 => wire__crate__api__artist_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        20 => wire__crate__api__create_engine_impl(port, ptr, rust_vec_len, data_len),
+        21 => wire__crate__api__event_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        22 => wire__crate__api__known_providers_impl(port, ptr, rust_vec_len, data_len),
+        23 => wire__crate__api__lyric_line_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__lyrics_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__playlist_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__search_results_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__search_results_dto_is_empty_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__session_dto_default_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__track_dto_default_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1906,6 +1967,13 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::TrackDto> for crate::api::Tra
     }
 }
 
+impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(format!("{:?}", self), serializer);
+    }
+}
+
 impl SseEncode for Engine {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1919,6 +1987,13 @@ impl SseEncode for RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpa
         let (ptr, size) = self.sse_encode_raw();
         <usize>::sse_encode(ptr, serializer);
         <i32>::sse_encode(size, serializer);
+    }
+}
+
+impl SseEncode for StreamSink<crate::api::EventDto, flutter_rust_bridge::for_generated::SseCodec> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        unimplemented!("")
     }
 }
 
@@ -1974,9 +2049,9 @@ impl SseEncode for crate::api::EventDto {
         <Option<String>>::sse_encode(self.title, serializer);
         <Option<String>>::sse_encode(self.artist, serializer);
         <Option<String>>::sse_encode(self.artwork_url, serializer);
-        <Option<u64>>::sse_encode(self.duration_ms, serializer);
-        <Option<u64>>::sse_encode(self.position_ms, serializer);
-        <Option<usize>>::sse_encode(self.queue_length, serializer);
+        <Option<u32>>::sse_encode(self.duration_ms, serializer);
+        <Option<u32>>::sse_encode(self.position_ms, serializer);
+        <Option<u32>>::sse_encode(self.queue_length, serializer);
         <Option<String>>::sse_encode(self.message, serializer);
         <Option<bool>>::sse_encode(self.signed_in, serializer);
     }
@@ -2121,16 +2196,6 @@ impl SseEncode for Option<u64> {
     }
 }
 
-impl SseEncode for Option<usize> {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <bool>::sse_encode(self.is_some(), serializer);
-        if let Some(value) = self {
-            <usize>::sse_encode(value, serializer);
-        }
-    }
-}
-
 impl SseEncode for crate::api::PlaylistDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2171,7 +2236,7 @@ impl SseEncode for crate::api::TrackDto {
         <Option<String>>::sse_encode(self.artwork_url, serializer);
         <Option<String>>::sse_encode(self.animated_artwork_url, serializer);
         <Option<String>>::sse_encode(self.dominant_color, serializer);
-        <Option<u64>>::sse_encode(self.duration_ms, serializer);
+        <Option<u32>>::sse_encode(self.duration_ms, serializer);
     }
 }
 

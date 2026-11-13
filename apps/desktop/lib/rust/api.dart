@@ -109,6 +109,15 @@ abstract class Engine implements RustOpaqueInterface {
   ///
   /// Fails with a mapped [`BridgeError`].
   Future<TrackDto> track({required String id});
+
+  /// Streams core events to the UI.
+  ///
+  /// The Rust core publishes to a broadcast bus; this method subscribes and
+  /// forwards onto a Dart `Stream`. Call it once: the UI fans the single
+  /// subscription out itself, which keeps one consumer on the Rust side.
+  ///
+  /// The stream ends when the engine is dropped.
+  Stream<EventDto> watchEvents();
 }
 
 /// An album, flattened for Dart.
@@ -219,9 +228,9 @@ class EventDto {
   final String? title;
   final String? artist;
   final String? artworkUrl;
-  final BigInt? durationMs;
-  final BigInt? positionMs;
-  final BigInt? queueLength;
+  final int? durationMs;
+  final int? positionMs;
+  final int? queueLength;
   final String? message;
   final bool? signedIn;
 
@@ -441,7 +450,7 @@ class TrackDto {
   final String? artworkUrl;
   final String? animatedArtworkUrl;
   final String? dominantColor;
-  final BigInt? durationMs;
+  final int? durationMs;
 
   const TrackDto({
     required this.id,
