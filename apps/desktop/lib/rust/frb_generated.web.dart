@@ -52,6 +52,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RustStreamSink<EventDto> dco_decode_StreamSink_event_dto_Sse(dynamic raw);
 
   @protected
+  RustStreamSink<InstallEventDto> dco_decode_StreamSink_install_event_dto_Sse(
+    dynamic raw,
+  );
+
+  @protected
   RustStreamSink<SignInEventDto> dco_decode_StreamSink_sign_in_event_dto_Sse(
     dynamic raw,
   );
@@ -91,6 +96,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EventDto dco_decode_event_dto(dynamic raw);
+
+  @protected
+  InstallEventDto dco_decode_install_event_dto(dynamic raw);
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
@@ -194,6 +202,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RustStreamSink<InstallEventDto> sse_decode_StreamSink_install_event_dto_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   RustStreamSink<SignInEventDto> sse_decode_StreamSink_sign_in_event_dto_Sse(
     SseDeserializer deserializer,
   );
@@ -235,6 +248,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EventDto sse_decode_event_dto(SseDeserializer deserializer);
+
+  @protected
+  InstallEventDto sse_decode_install_event_dto(SseDeserializer deserializer);
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
@@ -352,6 +368,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_StreamSink_install_event_dto_Sse(
+    RustStreamSink<InstallEventDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_StreamSink_sign_in_event_dto_Sse(
     RustStreamSink<SignInEventDto> self,
     SseSerializer serializer,
@@ -398,6 +420,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_event_dto(EventDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_install_event_dto(
+    InstallEventDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);

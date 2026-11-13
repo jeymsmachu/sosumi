@@ -7,8 +7,9 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `adopted_session`, `attach_runtime`, `block_on`, `default_music_directories`, `discover_manifest`, `from_provider`, `from_report`, `from`, `machine_sealer`, `parse_quality`, `parse_repeat`, `read_trimmed`, `resolve_storefront`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `attach_runtime`, `block_on`, `default_music_directories`, `discover_manifest`, `from_core`, `from_provider`, `from_report`, `from`, `machine_sealer`, `native_session`, `parse_quality`, `parse_repeat`, `read_trimmed`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `NativeSession`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Builds the engine. The UI calls this once, at startup.
 ///
@@ -51,6 +52,19 @@ abstract class Engine implements RustOpaqueInterface {
   /// True when audio output is available.
   Future<bool> audioReady();
 
+  /// Starts installing the lossless tier, reporting progress as it goes.
+  ///
+  /// Returns immediately; progress arrives on [`Engine::watch_install`]. The
+  /// fetch runs on the engine's runtime, so a 60 MiB download never blocks the
+  /// caller. Calling this while an install is already running is refused
+  /// rather than queued: two concurrent writes into one payload directory is
+  /// the kind of race that leaves a half-written library behind.
+  ///
+  /// # Errors
+  ///
+  /// Fails when the runtime is not attached or an install is already running.
+  Future<void> beginLosslessInstall();
+
   /// Starts a native sign-in to Apple.
   ///
   /// Returns immediately; progress arrives on [`Engine::watch_sign_in`]. The
@@ -65,6 +79,12 @@ abstract class Engine implements RustOpaqueInterface {
   /// Fails when the runtime is not attached, when a sign-in is already running,
   /// or when the worker cannot start.
   Future<void> beginSignIn({required String email, required String password});
+
+  /// Stops an install in progress.
+  ///
+  /// Files already fetched and verified are kept, so a cancel followed by
+  /// another start resumes rather than beginning again.
+  Future<void> cancelLosslessInstall();
 
   /// Gives up on a sign-in in progress.
   Future<void> cancelSignIn();
@@ -169,6 +189,10 @@ abstract class Engine implements RustOpaqueInterface {
   /// also written to the encrypted store, so a restart does not require
   /// signing in again.
   ///
+  /// The token is merged into the existing session rather than replacing it,
+  /// keeping the developer token the app discovered separately; replacing would
+  /// leave a session that reports signed in but cannot play.
+  ///
   /// # Errors
   ///
   /// Fails when the store cannot be written. The in-memory session is still
@@ -178,7 +202,25 @@ abstract class Engine implements RustOpaqueInterface {
     required String storefront,
   });
 
+  /// How ready sign-in is, as one of `ready`, `installable`, `damaged`, or
+  /// `unsupported`.
+  ///
+  /// Sign-in is done by Apple's own libraries, so those libraries must be
+  /// installed before there is anything to sign in to. Asking first is what
+  /// lets the form explain that up front, instead of collecting a password and
+  /// then refusing it — which reads as a wrong password.
+  ///
+  /// A string rather than a bool because the states have different remedies:
+  /// `installable` is the one Sosumi can fix, and `unsupported` is the one it
+  /// must not pretend to.
+  Future<String> signInReadiness();
+
   /// Signs out and clears the persisted session.
+  ///
+  /// The native flow's own token files are removed too. They are what the
+  /// startup refresh reads, so leaving them behind would sign the user back in
+  /// on the next launch — a sign-out that quietly undoes itself. The storefront
+  /// is kept, since it says where the account was rather than who it was.
   Future<void> signOut();
 
   /// Starts the audio engine.
@@ -219,6 +261,12 @@ abstract class Engine implements RustOpaqueInterface {
   ///
   /// The stream ends when the engine is dropped.
   Stream<EventDto> watchEvents();
+
+  /// Streams install progress to the UI.
+  ///
+  /// Emits until a terminal event. Subscribing before starting is safe, which
+  /// is the order the UI uses.
+  Stream<InstallEventDto> watchInstall();
 
   /// Streams sign-in progress to the UI.
   ///
@@ -450,6 +498,67 @@ class EventDto {
           queueLength == other.queueLength &&
           message == other.message &&
           signedIn == other.signedIn;
+}
+
+/// One step of a lossless install, as the Settings screen renders it.
+class InstallEventDto {
+  /// One of `started`, `progress`, `verifying`, `finished`, `cancelled`, or
+  /// `failed`.
+  final String kind;
+
+  /// The file being fetched, when the event names one.
+  final String? file;
+
+  /// One-based position of `file` in the queue.
+  final int index;
+
+  /// How many files are queued.
+  final int files;
+
+  /// Bytes received of the current file.
+  final BigInt done;
+
+  /// The current file's size, when the server reported it.
+  final BigInt? total;
+
+  /// A message fit for the screen, on failure.
+  final String? message;
+
+  const InstallEventDto({
+    required this.kind,
+    this.file,
+    required this.index,
+    required this.files,
+    required this.done,
+    this.total,
+    this.message,
+  });
+
+  static Future<InstallEventDto> default_() =>
+      RustLib.instance.api.crateApiInstallEventDtoDefault();
+
+  @override
+  int get hashCode =>
+      kind.hashCode ^
+      file.hashCode ^
+      index.hashCode ^
+      files.hashCode ^
+      done.hashCode ^
+      total.hashCode ^
+      message.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InstallEventDto &&
+          runtimeType == other.runtimeType &&
+          kind == other.kind &&
+          file == other.file &&
+          index == other.index &&
+          files == other.files &&
+          done == other.done &&
+          total == other.total &&
+          message == other.message;
 }
 
 /// One timed lyric line.

@@ -190,6 +190,38 @@ impl Runtime {
     pub fn install(&self) -> anyhow::Result<InstallOutcome> {
         self.layout.install().map_err(|e| anyhow::anyhow!("{e}"))
     }
+
+    /// Fetches every pinned file that is missing or altered, reporting progress.
+    ///
+    /// The in-app form of `scripts/fetch-fairplay-runtime.sh`. Each file is
+    /// checked against its pin before it is kept, and a file that does not match
+    /// is deleted rather than warned about. Files already correct are skipped, so
+    /// this doubles as a repair for a partial download.
+    ///
+    /// Returns how many files were downloaded.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a file cannot be obtained from any of its pinned sources.
+    pub async fn fetch_payload(
+        &self,
+        cancel: Arc<std::sync::atomic::AtomicBool>,
+        report: impl Fn(crate::install::InstallEvent) + Send,
+    ) -> anyhow::Result<usize> {
+        crate::install::fetch_runtime(
+            self.layout.lib64.clone(),
+            self.layout.manifest.files.clone(),
+            cancel,
+            report,
+        )
+        .await
+    }
+
+    /// The pinned files, for a caller that wants to fetch them itself.
+    #[must_use]
+    pub fn pinned_files(&self) -> &[sosumi_fairplay::PinnedFile] {
+        &self.layout.manifest.files
+    }
 }
 
 /// Shared handle the application holds.

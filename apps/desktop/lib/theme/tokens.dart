@@ -46,32 +46,6 @@ abstract final class Radii {
   static const double pill = 999;
 }
 
-/// Durations and curves.
-///
-/// Apple's own guidance is that motion should be quick and unhurried: 0.2-0.3 s
-/// for a control, longer for a panel. The curves are the standard ease-out for
-/// arrival and ease-in for departure, with a slight overshoot reserved for
-/// controls settling.
-abstract final class Motion {
-  /// Hover and press feedback.
-  static const Duration fast = Duration(milliseconds: 120);
-
-  /// Panel and colour transitions.
-  static const Duration normal = Duration(milliseconds: 220);
-
-  /// Full-screen transitions and reveals.
-  static const Duration slow = Duration(milliseconds: 380);
-
-  /// Elements arriving on screen.
-  static const Curve enter = Curves.easeOutCubic;
-
-  /// Elements leaving.
-  static const Curve exit = Curves.easeInCubic;
-
-  /// A control returning to rest, with the small overshoot Apple uses.
-  static const Curve settle = Curves.easeOutBack;
-}
-
 /// Fixed sizes several screens must agree on.
 abstract final class Sizes {
   /// The sidebar width.

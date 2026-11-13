@@ -5,7 +5,10 @@ import 'tokens.dart';
 
 export 'content_surface.dart';
 export 'glass.dart';
+export 'motion.dart';
 export 'palette.dart';
+export 'reveal.dart';
+export 'scroll_edge.dart';
 export 'scrubber.dart';
 export 'tokens.dart';
 

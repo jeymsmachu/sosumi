@@ -68,12 +68,31 @@ class _AppShellState extends ConsumerState<AppShell> {
                       child: Stack(
                         children: [
                           Positioned.fill(
-                            // A page transition rather than an instant swap, so
-                            // the change of context is legible.
+                            // A page transition, and the app's largest movement,
+                            // so it gets the slowest spring. The outgoing page
+                            // fades and gives way; the incoming one rises into
+                            // place, which reads as a change of context rather
+                            // than a swap of images.
                             child: AnimatedSwitcher(
-                              duration: Motion.normal,
-                              switchInCurve: Motion.enter,
+                              duration: context.motionDuration(Motion.slow),
+                              switchInCurve: context.motionCurve(Motion.page),
                               switchOutCurve: Motion.exit,
+                              transitionBuilder: (child, animation) => FadeTransition(
+                                opacity: animation,
+                                child: SlideTransition(
+                                  // A small rise, not a full-width slide: enough
+                                  // to imply direction, little enough that a
+                                  // person switching sections repeatedly is not
+                                  // made to watch it. `motion.md`: avoid making
+                                  // people "spend extra time paying attention to
+                                  // unnecessary motion every time".
+                                  position: Tween(
+                                    begin: const Offset(0, 0.02),
+                                    end: Offset.zero,
+                                  ).animate(animation),
+                                  child: child,
+                                ),
+                              ),
                               child: KeyedSubtree(
                                 key: ValueKey(_section),
                                 child: _SectionView(
@@ -84,6 +103,11 @@ class _AppShellState extends ConsumerState<AppShell> {
                               ),
                             ),
                           ),
+                          // Scrolling content fades and blurs where it meets the
+                          // toolbar, rather than colliding with it.
+                          // `layout.md`: use a scroll edge effect instead of a
+                          // solid background beneath the controls.
+                          const Positioned(top: 0, left: 0, right: 0, child: ScrollEdgeFade()),
                           // The player floats over the content, inset from the
                           // edges so the material has content to refract.
                           const Positioned(left: 0, right: 0, bottom: 0, child: PlayerBar()),

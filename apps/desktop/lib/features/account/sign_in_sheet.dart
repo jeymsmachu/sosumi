@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/engine.dart';
+import '../../core/install.dart';
 // The event DTO the bridge emits. Named explicitly rather than wildcard-imported,
 // so a change to the bridge surface shows up here as a compile error.
 import '../../rust/api.dart' show SignInEventDto;
 import '../../theme/theme.dart';
+import 'install_progress.dart';
 
 /// Native sign-in to Apple, through the `FairPlay` bridge.
 ///
@@ -16,16 +18,22 @@ import '../../theme/theme.dart';
 /// closed because WebKitGTK ships without Encrypted Media, so Apple's sign-in
 /// page cannot finish. See `docs/PLATFORM-LIMITS.md`.
 ///
-/// The flow is three steps, and the second only appears if Apple asks for it:
+/// # Why the prerequisite is checked before the form
 ///
-/// 1. Email and password.
-/// 2. A verification code, when a trusted device is challenged.
-/// 3. Done, or Apple's own message explaining what went wrong.
+/// Sign-in is performed by Apple's libraries, which are not bundled. Asking for
+/// an Apple ID and password and *then* saying a module is missing reads as a
+/// wrong password and sends the person to Settings to fix something they were
+/// never told about. `entering-data.md` is direct about this: validate before
+/// collecting, and explain in place.
+///
+/// So the sheet opens on whichever step is true. If the component is missing it
+/// leads with that, offers the install, and shows real progress — then continues
+/// into the form on its own.
 class SignInSheet extends ConsumerStatefulWidget {
   const SignInSheet({super.key});
 
   /// Opens the sheet. The result is `true` when sign-in succeeded, so the caller
-  /// can refresh what it shows.
+  /// can adopt the session.
   static Future<bool> show(BuildContext context) async {
     final result = await showDialog<bool>(
       context: context,
@@ -41,7 +49,24 @@ class SignInSheet extends ConsumerStatefulWidget {
 }
 
 /// Which step the sheet is on.
-enum _Step { credentials, code, working }
+enum _Step {
+  /// The required component is missing but installable. Shown first, and only
+  /// when it is.
+  prepare,
+
+  /// The machine cannot run the component at all. There is no action to offer, so
+  /// the sheet says so rather than showing a button that cannot work.
+  unsupported,
+
+  /// Apple ID and password.
+  credentials,
+
+  /// The code Apple sent to a trusted device.
+  code,
+
+  /// Waiting on Apple.
+  working,
+}
 
 class _SignInSheetState extends ConsumerState<SignInSheet> {
   final _email = TextEditingController();
@@ -54,6 +79,16 @@ class _SignInSheetState extends ConsumerState<SignInSheet> {
   bool _obscure = true;
 
   @override
+  void initState() {
+    super.initState();
+    // Checked after the first frame rather than in `initState`, because the
+    // check crosses the bridge and `build` must not await it. The sheet opens on
+    // the credential fields and moves to the prepare step only if the check says
+    // the component is missing, which keeps the common case free of a flash.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkReady());
+  }
+
+  @override
   void dispose() {
     _events?.cancel();
     _email.dispose();
@@ -62,68 +97,145 @@ class _SignInSheetState extends ConsumerState<SignInSheet> {
     super.dispose();
   }
 
+  /// Asks the bridge how ready sign-in is, and opens on the right step.
+  Future<void> _checkReady() async {
+    if (!mounted) return;
+    final engine = ref.read(engineProvider).requireValue;
+    final readiness = await engine.signInReadiness();
+    if (!mounted) return;
+    setState(() {
+      _step = switch (readiness) {
+        'ready' => _Step.credentials,
+        'unsupported' => _Step.unsupported,
+        // `installable` and `damaged` both lead to the install step: a damaged
+        // payload needs the same fetch as a missing one, and the fetch skips the
+        // files that already verify.
+        _ => _Step.prepare,
+      };
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    // The install state drives the prepare step's progress row, so the sheet
+    // watches it rather than owning a copy.
+    final install = ref.watch(installProvider);
+
+    // The install finishing is what moves the sheet on, so no button is needed
+    // to continue: the state the person was waiting for has arrived.
+    ref.listen(installProvider, (previous, next) {
+      if (previous?.isRunning == true && next.phase == InstallPhase.done) {
+        _checkReady();
+      }
+    });
 
     return Dialog(
       backgroundColor: Colors.transparent,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
+        constraints: const BoxConstraints(maxWidth: 400),
         child: GlassSurface(
           radius: Radii.panel,
           blur: 44,
           fill: palette.elevatedGlass,
           padding: const EdgeInsets.all(Insets.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _Header(step: _step),
-              const SizedBox(height: Insets.md),
-              _Explanation(step: _step),
-              const SizedBox(height: Insets.lg),
-              // The fields are dropped once the credentials are submitted. Leaving
-              // them on screen during the wait keeps a typed password visible for
-              // no reason, and there is nothing to edit while the call is in
-              // flight.
-              if (_step == _Step.code)
-                _CodeField(controller: _code)
-              else if (_step == _Step.credentials) ...[
-                _Field(
-                  controller: _email,
-                  hint: 'Apple ID',
-                  enabled: true,
+          child: AnimatedSize(
+            duration: context.motionDuration(Motion.normal),
+            curve: context.motionCurve(Motion.content),
+            alignment: Alignment.topCenter,
+            child: AnimatedSwitcher(
+              duration: context.motionDuration(Motion.normal),
+              switchInCurve: context.motionCurve(Motion.content),
+              switchOutCurve: Motion.exit,
+              // The default fade would cross-fade two differently sized panels
+              // into a smear; a fade plus a small rise reads as one panel
+              // changing its contents.
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween(
+                    begin: const Offset(0, 0.04),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
                 ),
-                const SizedBox(height: Insets.sm),
-                _Field(
-                  controller: _password,
-                  hint: 'Password',
-                  enabled: true,
-                  obscure: _obscure,
-                  onToggleObscure: () => setState(() => _obscure = !_obscure),
-                ),
-              ],
-              if (_error != null) ...[
-                const SizedBox(height: Insets.md),
-                _ErrorLine(message: _error!),
-              ],
-              const SizedBox(height: Insets.lg),
-              _Actions(
-                step: _step,
-                onCancel: _cancel,
-                onContinue: _continue,
               ),
-            ],
+              child: Column(
+                key: ValueKey(_step),
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _Header(step: _step),
+                  const SizedBox(height: Insets.md),
+                  _Explanation(step: _step),
+                  const SizedBox(height: Insets.lg),
+                  ..._body(install),
+                  if (_error != null) ...[
+                    const SizedBox(height: Insets.md),
+                    _ErrorLine(message: _error!),
+                  ],
+                  const SizedBox(height: Insets.lg),
+                  _Actions(
+                    step: _step,
+                    busy: _step == _Step.working || install.isRunning,
+                    onCancel: _cancel,
+                    onContinue: _continue,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
+  /// The fields for the current step, if it has any.
+  List<Widget> _body(InstallState install) {
+    switch (_step) {
+      case _Step.unsupported:
+        // No action is offered, so there is nothing here: a button would be a
+        // promise the machine cannot keep.
+        return const [];
+      case _Step.prepare:
+        return [
+          InstallProgress(state: install),
+          if (install.phase == InstallPhase.failed) ...[
+            const SizedBox(height: Insets.md),
+            _ErrorLine(message: install.error ?? 'The download failed.'),
+          ],
+        ];
+      case _Step.code:
+        return [_CodeField(controller: _code)];
+      case _Step.working:
+        // Nothing to edit while the call is in flight, and leaving a typed
+        // password on screen during the wait serves no purpose.
+        return const [];
+      case _Step.credentials:
+        return [
+          _Field(controller: _email, hint: 'Apple ID', enabled: true, onSubmitted: _continue),
+          const SizedBox(height: Insets.sm),
+          _Field(
+            controller: _password,
+            hint: 'Password',
+            enabled: true,
+            obscure: _obscure,
+            onSubmitted: _continue,
+            onToggleObscure: () => setState(() => _obscure = !_obscure),
+          ),
+        ];
+    }
+  }
+
   /// Moves to the next step, or performs it when there is nothing to collect.
   Future<void> _continue() async {
     switch (_step) {
+      case _Step.unsupported:
+        // Unreachable: the step offers no action. Handled rather than left out so
+        // a new step cannot silently fall through to starting an install.
+        break;
+      case _Step.prepare:
+        await _startInstall();
       case _Step.credentials:
         final email = _email.text.trim();
         final password = _password.text;
@@ -142,6 +254,12 @@ class _SignInSheetState extends ConsumerState<SignInSheet> {
       case _Step.working:
         break;
     }
+  }
+
+  /// Begins the install the prepare step is offering.
+  Future<void> _startInstall() async {
+    setState(() => _error = null);
+    await ref.read(installProvider.notifier).start();
   }
 
   Future<void> _start(String email, String password) async {
@@ -221,19 +339,19 @@ class _SignInSheetState extends ConsumerState<SignInSheet> {
   /// Turns a bridge error into something worth reading.
   ///
   /// The bridge sends a `kind` for each failure, and the remedies differ, so the
-  /// kind decides the wording rather than the raw message.
+  /// kind decides the wording rather than the raw message. The prerequisite case
+  /// no longer reaches here — it is caught before the form — but the mapping
+  /// stays for the rare race where the payload is removed mid-attempt.
   String _describe(Exception error) {
     final text = error.toString();
-    if (text.contains('not installed')) {
-      return 'The lossless component is not installed. Install it from Settings '
-          'and try again.';
+    if (text.contains('not installed') || text.contains('runtime is not installed')) {
+      return 'Apple\'s sign-in module is missing. Sosumi offers to install it here.';
     }
     if (text.contains('already in progress')) {
       return 'A sign-in is already in progress.';
     }
     return text;
-  }
-}
+  }}
 
 class _Header extends StatelessWidget {
   const _Header({required this.step});
@@ -244,6 +362,8 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.palette;
     final title = switch (step) {
+      _Step.unsupported => 'Sign-in is unavailable',
+      _Step.prepare => 'One component needed',
       _Step.credentials => 'Sign in to Apple Music',
       _Step.code => 'Enter the verification code',
       _Step.working => 'Signing in\u2026',
@@ -270,14 +390,26 @@ class _Explanation extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.palette;
     final text = switch (step) {
+      // Says what is wrong and that there is nothing to be done here, rather
+      // than offering a fix that cannot work. `writing.md`: "be clear about what
+      // someone can do to fix it", and where there is nothing, say that plainly.
+      _Step.unsupported =>
+        'Apple\'s sign-in libraries are x86-64 only, and this machine is not. '
+            'Sosumi cannot sign in here, so lossless playback is unavailable.',
+      // States the benefit before the cost, and says why the download is needed
+      // rather than presenting it as a rule.
+      _Step.prepare =>
+        'Apple performs the sign-in itself, through its own libraries. Sosumi '
+            'does not ship those, so it fetches them to your machine once — about '
+            '60 MB — and verifies every file. This is the same step that enables '
+            'lossless playback.',
       _Step.credentials =>
         'Sosumi plays music from your Apple Music subscription. Your credentials '
             'go directly to Apple and are never stored by Sosumi.',
       _Step.code =>
         'Apple sent a code to your trusted devices. Enter it here to finish '
             'signing in.',
-      _Step.working =>
-        'Talking to Apple. This can take a few seconds.',
+      _Step.working => 'Talking to Apple. This can take a few seconds.',
     };
 
     return Text(text, style: TextStyles.callout.copyWith(color: palette.textSecondary));
@@ -291,6 +423,7 @@ class _Field extends StatelessWidget {
     required this.enabled,
     this.obscure = false,
     this.onToggleObscure,
+    this.onSubmitted,
   });
 
   final TextEditingController controller;
@@ -298,6 +431,7 @@ class _Field extends StatelessWidget {
   final bool enabled;
   final bool obscure;
   final VoidCallback? onToggleObscure;
+  final VoidCallback? onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -326,7 +460,9 @@ class _Field extends StatelessWidget {
                   : null,
               style: TextStyles.body.copyWith(color: palette.textPrimary),
               cursorColor: palette.accent,
-              onSubmitted: (_) => onToggleObscure == null ? null : null,
+              // Enter submits, which is what a person expects in a short form
+              // and what `keyboards.md` asks for on a desktop.
+              onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
               decoration: InputDecoration(
                 border: InputBorder.none,
                 isDense: true,
@@ -420,55 +556,78 @@ class _ErrorLine extends StatelessWidget {
   }
 }
 
-class _Actions extends StatelessWidget {
+class _Actions extends ConsumerWidget {
   const _Actions({
     required this.step,
+    required this.busy,
     required this.onCancel,
     required this.onContinue,
   });
 
   final _Step step;
+  final bool busy;
   final VoidCallback onCancel;
   final VoidCallback onContinue;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final palette = context.palette;
-    final busy = step == _Step.working;
+    final install = ref.watch(installProvider);
+    final installing = install.isRunning;
+
+    // The primary label names what happens, per `writing.md`: "Every label says
+    // what happens". "Continue" gives way to "Install" and then to a live file
+    // count, so the button never asks for something the screen has not explained.
+    final (label, onPressed) = switch (step) {
+      // Nothing to do on a machine that cannot run it, so no primary action.
+      _Step.unsupported => (null, null),
+      _Step.prepare when install.phase == InstallPhase.done => ('Continue', onContinue),
+      _Step.prepare when install.phase == InstallPhase.failed => ('Try Again', onContinue),
+      _Step.prepare when installing => ('Installing\u2026', null),
+      _Step.prepare => ('Install', onContinue),
+      _Step.code => ('Verify', onContinue),
+      _Step.working => ('Continue', null),
+      _Step.credentials => ('Sign In', onContinue),
+    };
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        // Cancel while an install is running actually stops it, so the label is
+        // accurate rather than a dismissal that leaves a download going.
         TextButton(
-          onPressed: onCancel,
+          onPressed: installing ? () => ref.read(installProvider.notifier).cancel() : onCancel,
           child: Text(
-            busy ? 'Cancel' : 'Not Now',
+            installing ? 'Stop' : (step == _Step.working ? 'Cancel' : 'Not Now'),
             style: TextStyles.body.copyWith(color: palette.textSecondary),
           ),
         ),
-        const SizedBox(width: Insets.sm),
-        FilledButton(
-          onPressed: busy ? null : onContinue,
-          style: FilledButton.styleFrom(
-            backgroundColor: palette.accent,
-            foregroundColor: Colors.white,
-            disabledBackgroundColor: palette.fill,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(Radii.small),
+        if (label != null) ...[
+          const SizedBox(width: Insets.sm),
+          FilledButton(
+            onPressed: busy ? null : onPressed,
+            style: FilledButton.styleFrom(
+              backgroundColor: palette.accent,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: palette.fill,
+              disabledForegroundColor: palette.textTertiary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(Radii.small),
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Insets.lg,
+                vertical: Insets.md,
+              ),
             ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: Insets.lg,
-              vertical: Insets.md,
-            ),
+            child: busy
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : Text(label),
           ),
-          child: busy
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : Text(step == _Step.code ? 'Verify' : 'Continue'),
-        ),
+        ],
       ],
     );
   }

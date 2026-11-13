@@ -204,9 +204,13 @@ class _Avatar extends StatelessWidget {
 /// authorization error after a correct password — see `docs/PLATFORM-LIMITS.md`.
 /// This drives Apple's own account libraries instead, which need no browser.
 ///
-/// The HIG is explicit that sign-in should be delayed until it is needed and that
-/// the request should say why the account is required, so the sheet opens only
-/// when asked and states the reason before collecting anything.
+/// The prerequisite is handled inside the sheet rather than here, because the
+/// sheet is where it can be explained and installed. The HIG is explicit that
+/// sign-in should be delayed until it is needed and that the request should say
+/// why the account is required, so the sheet opens only when asked and states the
+/// reason before collecting anything.
+///
+/// One function for the account menu and Settings, so there is one flow.
 Future<void> showSignIn(BuildContext context, WidgetRef ref) async {
   final succeeded = await SignInSheet.show(context);
   if (!succeeded || !context.mounted) return;

@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -1665932395;
+  int get rustContentHash => 1120415009;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -83,11 +83,15 @@ abstract class RustLibApi extends BaseApi {
 
   Future<bool> crateApiEngineAudioReady({required Engine that});
 
+  Future<void> crateApiEngineBeginLosslessInstall({required Engine that});
+
   Future<void> crateApiEngineBeginSignIn({
     required Engine that,
     required String email,
     required String password,
   });
+
+  Future<void> crateApiEngineCancelLosslessInstall({required Engine that});
 
   Future<void> crateApiEngineCancelSignIn({required Engine that});
 
@@ -154,6 +158,8 @@ abstract class RustLibApi extends BaseApi {
     required String storefront,
   });
 
+  Future<String> crateApiEngineSignInReadiness({required Engine that});
+
   Future<void> crateApiEngineSignOut({required Engine that});
 
   Future<void> crateApiEngineStartAudio({required Engine that});
@@ -174,6 +180,8 @@ abstract class RustLibApi extends BaseApi {
 
   Stream<EventDto> crateApiEngineWatchEvents({required Engine that});
 
+  Stream<InstallEventDto> crateApiEngineWatchInstall({required Engine that});
+
   Stream<SignInEventDto> crateApiEngineWatchSignIn({required Engine that});
 
   Future<AlbumDto> crateApiAlbumDtoDefault();
@@ -185,6 +193,8 @@ abstract class RustLibApi extends BaseApi {
   Future<Engine> crateApiCreateEngine();
 
   Future<EventDto> crateApiEventDtoDefault();
+
+  Future<InstallEventDto> crateApiInstallEventDtoDefault();
 
   Future<List<String>> crateApiKnownProviders();
 
@@ -287,6 +297,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "Engine_audio_ready", argNames: ["that"]);
 
   @override
+  Future<void> crateApiEngineBeginLosslessInstall({required Engine that}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerEngine(
+            that,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_bridge_error,
+        ),
+        constMeta: kCrateApiEngineBeginLosslessInstallConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEngineBeginLosslessInstallConstMeta =>
+      const TaskConstMeta(
+        debugName: "Engine_begin_lossless_install",
+        argNames: ["that"],
+      );
+
+  @override
   Future<void> crateApiEngineBeginSignIn({
     required Engine that,
     required String email,
@@ -305,7 +349,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 4,
             port: port_,
           );
         },
@@ -326,6 +370,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<void> crateApiEngineCancelLosslessInstall({required Engine that}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerEngine(
+            that,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEngineCancelLosslessInstallConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEngineCancelLosslessInstallConstMeta =>
+      const TaskConstMeta(
+        debugName: "Engine_cancel_lossless_install",
+        argNames: ["that"],
+      );
+
+  @override
   Future<void> crateApiEngineCancelSignIn({required Engine that}) {
     return handler.executeNormal(
       NormalTask(
@@ -338,7 +416,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 6,
             port: port_,
           );
         },
@@ -373,7 +451,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 7,
             port: port_,
           );
         },
@@ -408,7 +486,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 8,
             port: port_,
           );
         },
@@ -441,7 +519,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 9,
             port: port_,
           );
         },
@@ -475,7 +553,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 10,
             port: port_,
           );
         },
@@ -513,7 +591,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 11,
             port: port_,
           );
         },
@@ -544,7 +622,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 12,
             port: port_,
           );
         },
@@ -575,7 +653,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 13,
             port: port_,
           );
         },
@@ -606,7 +684,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 14,
             port: port_,
           );
         },
@@ -641,7 +719,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 15,
             port: port_,
           );
         },
@@ -674,7 +752,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 16,
             port: port_,
           );
         },
@@ -705,7 +783,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 17,
             port: port_,
           );
         },
@@ -736,7 +814,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 18,
             port: port_,
           );
         },
@@ -771,7 +849,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 19,
             port: port_,
           );
         },
@@ -804,7 +882,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 20,
             port: port_,
           );
         },
@@ -839,7 +917,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 21,
             port: port_,
           );
         },
@@ -876,7 +954,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 22,
             port: port_,
           );
         },
@@ -913,7 +991,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 23,
             port: port_,
           );
         },
@@ -952,7 +1030,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 24,
             port: port_,
           );
         },
@@ -973,6 +1051,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<String> crateApiEngineSignInReadiness({required Engine that}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerEngine(
+            that,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 25,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiEngineSignInReadinessConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiEngineSignInReadinessConstMeta =>
+      const TaskConstMeta(
+        debugName: "Engine_sign_in_readiness",
+        argNames: ["that"],
+      );
+
+  @override
   Future<void> crateApiEngineSignOut({required Engine that}) {
     return handler.executeNormal(
       NormalTask(
@@ -985,7 +1097,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 26,
             port: port_,
           );
         },
@@ -1016,7 +1128,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 27,
             port: port_,
           );
         },
@@ -1047,7 +1159,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 28,
             port: port_,
           );
         },
@@ -1078,7 +1190,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1113,7 +1225,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1151,7 +1263,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1185,7 +1297,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 29,
+              funcId: 32,
               port: port_,
             );
           },
@@ -1208,6 +1320,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Stream<InstallEventDto> crateApiEngineWatchInstall({required Engine that}) {
+    final sink = RustStreamSink<InstallEventDto>();
+    unawaited(
+      handler.executeNormal(
+        NormalTask(
+          callFfi: (port_) {
+            final serializer = SseSerializer(generalizedFrbRustBinding);
+            sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerEngine(
+              that,
+              serializer,
+            );
+            sse_encode_StreamSink_install_event_dto_Sse(sink, serializer);
+            pdeCallFfi(
+              generalizedFrbRustBinding,
+              serializer,
+              funcId: 33,
+              port: port_,
+            );
+          },
+          codec: SseCodec(
+            decodeSuccessData: sse_decode_unit,
+            decodeErrorData: null,
+          ),
+          constMeta: kCrateApiEngineWatchInstallConstMeta,
+          argValues: [that, sink],
+          apiImpl: this,
+        ),
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiEngineWatchInstallConstMeta => const TaskConstMeta(
+    debugName: "Engine_watch_install",
+    argNames: ["that", "sink"],
+  );
+
+  @override
   Stream<SignInEventDto> crateApiEngineWatchSignIn({required Engine that}) {
     final sink = RustStreamSink<SignInEventDto>();
     unawaited(
@@ -1223,7 +1373,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 30,
+              funcId: 34,
               port: port_,
             );
           },
@@ -1254,7 +1404,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1281,7 +1431,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1308,7 +1458,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1335,7 +1485,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1363,7 +1513,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 39,
             port: port_,
           );
         },
@@ -1382,6 +1532,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "event_dto_default", argNames: []);
 
   @override
+  Future<InstallEventDto> crateApiInstallEventDtoDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 40,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_install_event_dto,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiInstallEventDtoDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiInstallEventDtoDefaultConstMeta =>
+      const TaskConstMeta(debugName: "install_event_dto_default", argNames: []);
+
+  @override
   Future<List<String>> crateApiKnownProviders() {
     return handler.executeNormal(
       NormalTask(
@@ -1390,7 +1567,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1417,7 +1594,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 42,
             port: port_,
           );
         },
@@ -1444,7 +1621,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 43,
             port: port_,
           );
         },
@@ -1471,7 +1648,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 39,
+            funcId: 44,
             port: port_,
           );
         },
@@ -1498,7 +1675,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 45,
             port: port_,
           );
         },
@@ -1531,7 +1708,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 46,
             port: port_,
           );
         },
@@ -1561,7 +1738,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 47,
             port: port_,
           );
         },
@@ -1588,7 +1765,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 48,
             port: port_,
           );
         },
@@ -1615,7 +1792,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 44,
+            funcId: 49,
             port: port_,
           );
         },
@@ -1676,6 +1853,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   RustStreamSink<EventDto> dco_decode_StreamSink_event_dto_Sse(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
+  RustStreamSink<InstallEventDto> dco_decode_StreamSink_install_event_dto_Sse(
+    dynamic raw,
+  ) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     throw UnimplementedError();
   }
@@ -1806,6 +1991,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       queueLength: dco_decode_opt_box_autoadd_u_32(arr[7]),
       message: dco_decode_opt_String(arr[8]),
       signedIn: dco_decode_opt_box_autoadd_bool(arr[9]),
+    );
+  }
+
+  @protected
+  InstallEventDto dco_decode_install_event_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return InstallEventDto(
+      kind: dco_decode_String(arr[0]),
+      file: dco_decode_opt_String(arr[1]),
+      index: dco_decode_u_32(arr[2]),
+      files: dco_decode_u_32(arr[3]),
+      done: dco_decode_u_64(arr[4]),
+      total: dco_decode_opt_box_autoadd_u_64(arr[5]),
+      message: dco_decode_opt_String(arr[6]),
     );
   }
 
@@ -2068,6 +2270,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RustStreamSink<InstallEventDto> sse_decode_StreamSink_install_event_dto_Sse(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   RustStreamSink<SignInEventDto> sse_decode_StreamSink_sign_in_event_dto_Sse(
     SseDeserializer deserializer,
   ) {
@@ -2206,6 +2416,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       queueLength: var_queueLength,
       message: var_message,
       signedIn: var_signedIn,
+    );
+  }
+
+  @protected
+  InstallEventDto sse_decode_install_event_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_kind = sse_decode_String(deserializer);
+    var var_file = sse_decode_opt_String(deserializer);
+    var var_index = sse_decode_u_32(deserializer);
+    var var_files = sse_decode_u_32(deserializer);
+    var var_done = sse_decode_u_64(deserializer);
+    var var_total = sse_decode_opt_box_autoadd_u_64(deserializer);
+    var var_message = sse_decode_opt_String(deserializer);
+    return InstallEventDto(
+      kind: var_kind,
+      file: var_file,
+      index: var_index,
+      files: var_files,
+      done: var_done,
+      total: var_total,
+      message: var_message,
     );
   }
 
@@ -2564,6 +2795,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_StreamSink_install_event_dto_Sse(
+    RustStreamSink<InstallEventDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+      self.setupAndSerialize(
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_install_event_dto,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+      ),
+      serializer,
+    );
+  }
+
+  @protected
   void sse_encode_StreamSink_sign_in_event_dto_Sse(
     RustStreamSink<SignInEventDto> self,
     SseSerializer serializer,
@@ -2680,6 +2928,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_u_32(self.queueLength, serializer);
     sse_encode_opt_String(self.message, serializer);
     sse_encode_opt_box_autoadd_bool(self.signedIn, serializer);
+  }
+
+  @protected
+  void sse_encode_install_event_dto(
+    InstallEventDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.kind, serializer);
+    sse_encode_opt_String(self.file, serializer);
+    sse_encode_u_32(self.index, serializer);
+    sse_encode_u_32(self.files, serializer);
+    sse_encode_u_64(self.done, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.total, serializer);
+    sse_encode_opt_String(self.message, serializer);
   }
 
   @protected
@@ -2977,6 +3240,20 @@ class EngineImpl extends RustOpaque implements Engine {
   Future<bool> audioReady() =>
       RustLib.instance.api.crateApiEngineAudioReady(that: this);
 
+  /// Starts installing the lossless tier, reporting progress as it goes.
+  ///
+  /// Returns immediately; progress arrives on [`Engine::watch_install`]. The
+  /// fetch runs on the engine's runtime, so a 60 MiB download never blocks the
+  /// caller. Calling this while an install is already running is refused
+  /// rather than queued: two concurrent writes into one payload directory is
+  /// the kind of race that leaves a half-written library behind.
+  ///
+  /// # Errors
+  ///
+  /// Fails when the runtime is not attached or an install is already running.
+  Future<void> beginLosslessInstall() =>
+      RustLib.instance.api.crateApiEngineBeginLosslessInstall(that: this);
+
   /// Starts a native sign-in to Apple.
   ///
   /// Returns immediately; progress arrives on [`Engine::watch_sign_in`]. The
@@ -2996,6 +3273,13 @@ class EngineImpl extends RustOpaque implements Engine {
         email: email,
         password: password,
       );
+
+  /// Stops an install in progress.
+  ///
+  /// Files already fetched and verified are kept, so a cancel followed by
+  /// another start resumes rather than beginning again.
+  Future<void> cancelLosslessInstall() =>
+      RustLib.instance.api.crateApiEngineCancelLosslessInstall(that: this);
 
   /// Gives up on a sign-in in progress.
   Future<void> cancelSignIn() =>
@@ -3119,6 +3403,10 @@ class EngineImpl extends RustOpaque implements Engine {
   /// also written to the encrypted store, so a restart does not require
   /// signing in again.
   ///
+  /// The token is merged into the existing session rather than replacing it,
+  /// keeping the developer token the app discovered separately; replacing would
+  /// leave a session that reports signed in but cannot play.
+  ///
   /// # Errors
   ///
   /// Fails when the store cannot be written. The in-memory session is still
@@ -3132,7 +3420,26 @@ class EngineImpl extends RustOpaque implements Engine {
     storefront: storefront,
   );
 
+  /// How ready sign-in is, as one of `ready`, `installable`, `damaged`, or
+  /// `unsupported`.
+  ///
+  /// Sign-in is done by Apple's own libraries, so those libraries must be
+  /// installed before there is anything to sign in to. Asking first is what
+  /// lets the form explain that up front, instead of collecting a password and
+  /// then refusing it — which reads as a wrong password.
+  ///
+  /// A string rather than a bool because the states have different remedies:
+  /// `installable` is the one Sosumi can fix, and `unsupported` is the one it
+  /// must not pretend to.
+  Future<String> signInReadiness() =>
+      RustLib.instance.api.crateApiEngineSignInReadiness(that: this);
+
   /// Signs out and clears the persisted session.
+  ///
+  /// The native flow's own token files are removed too. They are what the
+  /// startup refresh reads, so leaving them behind would sign the user back in
+  /// on the next launch — a sign-out that quietly undoes itself. The storefront
+  /// is kept, since it says where the account was rather than who it was.
   Future<void> signOut() =>
       RustLib.instance.api.crateApiEngineSignOut(that: this);
 
@@ -3179,6 +3486,13 @@ class EngineImpl extends RustOpaque implements Engine {
   /// The stream ends when the engine is dropped.
   Stream<EventDto> watchEvents() =>
       RustLib.instance.api.crateApiEngineWatchEvents(that: this);
+
+  /// Streams install progress to the UI.
+  ///
+  /// Emits until a terminal event. Subscribing before starting is safe, which
+  /// is the order the UI uses.
+  Stream<InstallEventDto> watchInstall() =>
+      RustLib.instance.api.crateApiEngineWatchInstall(that: this);
 
   /// Streams sign-in progress to the UI.
   ///

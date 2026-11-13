@@ -88,14 +88,31 @@ class _Artwork extends StatelessWidget {
       child: SizedBox(
         width: 44,
         height: 44,
-        child: url == null
-            ? ColoredBox(color: palette.fill, child: _placeholder(palette))
-            : Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    ColoredBox(color: palette.fill, child: _placeholder(palette)),
-              ),
+        // Cross-fades when the track changes, rather than snapping from one
+        // cover to the next. Apple's player does the same, and it is the moment
+        // most worth smoothing: it is the one piece of content that changes
+        // every time a track ends.
+        child: AnimatedSwitcher(
+          duration: context.motionDuration(Motion.normal),
+          switchInCurve: context.motionCurve(Motion.content),
+          switchOutCurve: Motion.exit,
+          child: url == null
+              ? ColoredBox(
+                  key: const ValueKey('placeholder'),
+                  color: palette.fill,
+                  child: _placeholder(palette),
+                )
+              : Image.network(
+                  url,
+                  key: ValueKey(url),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => ColoredBox(
+                    key: const ValueKey('error'),
+                    color: palette.fill,
+                    child: _placeholder(palette),
+                  ),
+                ),
+        ),
       ),
     );
   }
@@ -170,8 +187,7 @@ class _Transport extends StatelessWidget {
           tooltip: playing ? 'Pause' : 'Play',
           size: 22,
           onTap: enabled ? onPlayPause : null,
-        ),
-        _TransportButton(
+        ),        _TransportButton(
           icon: Icons.skip_next_rounded,
           tooltip: 'Next',
           onTap: enabled ? onNext : null,
@@ -201,11 +217,29 @@ class _TransportButton extends StatelessWidget {
       onTap: onTap,
       radius: Radii.pill,
       tooltip: tooltip,
+      semanticLabel: tooltip,
       padding: const EdgeInsets.all(Insets.sm),
-      child: Icon(
-        icon,
-        size: size,
-        color: onTap == null ? palette.textTertiary : palette.textPrimary,
+      // The glyph swaps on a short spring, which turns an abrupt glyph change
+      // into a small physical motion. `sf-symbols.md` covers the same idea for
+      // symbol animations: the transition should read as the same control
+      // changing state, not as a different control appearing.
+      child: AnimatedSwitcher(
+        duration: context.motionDuration(Motion.fast),
+        switchInCurve: context.motionCurve(Motion.control),
+        switchOutCurve: Motion.exit,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween(begin: 0.8, end: 1.0).animate(animation),
+            child: child,
+          ),
+        ),
+        child: Icon(
+          icon,
+          key: ValueKey(icon),
+          size: size,
+          color: onTap == null ? palette.textTertiary : palette.textPrimary,
+        ),
       ),
     );
   }

@@ -1,7 +1,9 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import 'motion.dart';
 import 'palette.dart';
 import 'tokens.dart';
 
@@ -69,6 +71,27 @@ class GlassSurface extends StatelessWidget {
     final palette = context.palette;
     final shape = BorderRadius.circular(radius);
 
+    // The accessibility states, from the Liquid Glass checklist: "Reduce
+    // Transparency gets an opaque fallback, Increase Contrast gets stronger
+    // fills and borders." Flutter exposes high contrast but not reduce
+    // transparency, so both are served by the same fallback, which is the safe
+    // direction: an opaque surface is legible everywhere a translucent one is,
+    // and the reverse is not true.
+    final highContrast = MediaQuery.maybeHighContrastOf(context) ?? false;
+    if (highContrast) {
+      return Padding(
+        padding: margin ?? EdgeInsets.zero,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: _opaque(palette, fill),
+            borderRadius: shape,
+            border: Border.all(color: palette.textTertiary, width: 1),
+          ),
+          child: Padding(padding: padding ?? EdgeInsets.zero, child: child),
+        ),
+      );
+    }
+
     return Padding(
       padding: margin ?? EdgeInsets.zero,
       child: ClipRRect(
@@ -121,6 +144,14 @@ class GlassSurface extends StatelessWidget {
       ),
     );
   }
+
+  /// A translucent tint resolved to something opaque, for the accessibility
+  /// fallback.
+  ///
+  /// Uses the canvas colour the tint was composed against, so the fallback keeps
+  /// the same value rather than inventing a new one.
+  Color _opaque(SosumiPalette palette, Color? tint) =>
+      Color.alphaBlend(tint ?? palette.glassFill, palette.canvas);
 }
 
 /// A luminance-preserving saturation matrix.
@@ -138,6 +169,11 @@ List<double> _saturationMatrix(double s) => <double>[
 ///
 /// The response is a fill change rather than a scale: scaling text under a
 /// pointer makes it shimmer, and Apple's own controls brighten instead.
+///
+/// The change animates on a short spring rather than a linear curve, so a quick
+/// pass of the pointer and a deliberate press both feel like the same material
+/// responding. `motion.md`: "Aim for brevity and precision in feedback
+/// animations."
 class InteractiveGlass extends StatefulWidget {
   const InteractiveGlass({
     super.key,
@@ -148,6 +184,7 @@ class InteractiveGlass extends StatefulWidget {
     this.selected = false,
     this.margin,
     this.tooltip,
+    this.semanticLabel,
   });
 
   final Widget child;
@@ -158,6 +195,13 @@ class InteractiveGlass extends StatefulWidget {
   final EdgeInsetsGeometry? margin;
   final String? tooltip;
 
+  /// A label for assistive technology, when the child is an icon alone.
+  ///
+  /// `accessibility.md`: "Convey information with more than color alone" and the
+  /// requirement that every icon-only control be labelled. A tooltip is not a
+  /// substitute, because it is not announced.
+  final String? semanticLabel;
+
   @override
   State<InteractiveGlass> createState() => _InteractiveGlassState();
 }
@@ -165,10 +209,19 @@ class InteractiveGlass extends StatefulWidget {
 class _InteractiveGlassState extends State<InteractiveGlass> {
   bool _hovered = false;
   bool _pressed = false;
+  bool _focused = false;
+  final _focus = FocusNode(debugLabel: 'InteractiveGlass');
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final interactive = widget.onTap != null;
 
     final decoration = BoxDecoration(
       color: widget.selected
@@ -179,31 +232,73 @@ class _InteractiveGlassState extends State<InteractiveGlass> {
                   ? palette.fill.withValues(alpha: palette.fill.a * 0.6)
                   : Colors.transparent,
       borderRadius: BorderRadius.circular(widget.radius),
+      // A focus ring rather than a highlight, because these are controls rather
+      // than list rows. `focus-and-selection.md`: "use a focus ring for a text or
+      // search field, but use a highlight in a list or collection". The accent
+      // is the platform's own focus colour, so it matches the system.
+      border: _focused ? Border.all(color: palette.accent, width: 2) : null,
     );
 
     Widget row = AnimatedContainer(
-      duration: Motion.fast,
-      curve: Motion.enter,
+      duration: context.motionDuration(Motion.fast),
+      curve: context.motionCurve(Motion.interactive),
       margin: widget.margin,
       decoration: decoration,
       child: Padding(padding: widget.padding ?? EdgeInsets.zero, child: widget.child),
     );
 
     row = MouseRegion(
-      cursor: widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+      cursor: interactive ? SystemMouseCursors.click : MouseCursor.defer,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() {
         _hovered = false;
         _pressed = false;
       }),
       child: GestureDetector(
-        onTapDown: widget.onTap == null ? null : (_) => setState(() => _pressed = true),
-        onTapUp: widget.onTap == null ? null : (_) => setState(() => _pressed = false),
-        onTapCancel: widget.onTap == null ? null : () => setState(() => _pressed = false),
+        onTapDown: interactive ? (_) => setState(() => _pressed = true) : null,
+        onTapUp: interactive ? (_) => setState(() => _pressed = false) : null,
+        onTapCancel: interactive ? () => setState(() => _pressed = false) : null,
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
         child: row,
       ),
+    );
+
+    if (interactive) {
+      // Keyboard-reachable, and activating on Enter or Space, which is what a
+      // desktop expects of anything that behaves like a button.
+      // `accessibility.md`: "Let people use the keyboard alone to navigate and
+      // interact with your app."
+      row = Focus(
+        focusNode: _focus,
+        onFocusChange: (hasFocus) => setState(() => _focused = hasFocus),
+        child: Actions(
+          actions: <Type, Action<Intent>>{
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                widget.onTap?.call();
+                return null;
+              },
+            ),
+          },
+          child: Shortcuts(
+            shortcuts: const <ShortcutActivator, Intent>{
+              SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+              SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+            },
+            child: row,
+          ),
+        ),
+      );
+    }
+
+    // A pressed state is already visible, but a *selected* row's only other cue
+    // is a fill, which is why it is announced rather than left to colour.
+    row = Semantics(
+      button: interactive,
+      selected: widget.selected,
+      label: widget.semanticLabel,
+      child: row,
     );
 
     final tooltip = widget.tooltip;

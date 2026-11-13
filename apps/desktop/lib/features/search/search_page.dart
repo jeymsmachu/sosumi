@@ -159,19 +159,24 @@ class _Results extends ConsumerWidget {
       children: [
         if (results.tracks.isNotEmpty) ...[
           const _SectionHeading('Songs'),
-          for (final track in results.tracks)
-            _TrackRow(
-              track: track,
-              onTap: () => ref.read(playerProvider.notifier).play(track.id),
+          for (final (index, track) in results.tracks.indexed)
+            Reveal(
+              index: index,
+              child: _TrackRow(
+                track: track,
+                onTap: () => ref.read(playerProvider.notifier).play(track.id),
+              ),
             ),
         ],
         if (results.albums.isNotEmpty) ...[
           const _SectionHeading('Albums'),
-          for (final album in results.albums) _AlbumRow(album: album),
+          for (final (index, album) in results.albums.indexed)
+            Reveal(index: index, child: _AlbumRow(album: album)),
         ],
         if (results.artists.isNotEmpty) ...[
           const _SectionHeading('Artists'),
-          for (final artist in results.artists) _ArtistRow(artist: artist),
+          for (final (index, artist) in results.artists.indexed)
+            Reveal(index: index, child: _ArtistRow(artist: artist)),
         ],
       ],
     );
@@ -245,7 +250,7 @@ class _ArtistRow extends StatelessWidget {
   }
 }
 
-class _ResultRow extends StatefulWidget {
+class _ResultRow extends StatelessWidget {
   const _ResultRow({
     required this.artworkUrl,
     required this.title,
@@ -261,84 +266,69 @@ class _ResultRow extends StatefulWidget {
   final VoidCallback? onTap;
 
   @override
-  State<_ResultRow> createState() => _ResultRowState();
-}
-
-class _ResultRowState extends State<_ResultRow> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: Motion.fast,
-          padding: const EdgeInsets.symmetric(vertical: Insets.sm, horizontal: Insets.sm),
-          decoration: BoxDecoration(
-            color: _hovered ? palette.glassFill : Colors.transparent,
-            borderRadius: BorderRadius.circular(Radii.row),
-          ),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(widget.round ? Radii.pill : Radii.small),
-                child: SizedBox(
-                  width: Sizes.listArtwork,
-                  height: Sizes.listArtwork,
-                  child: widget.artworkUrl == null
-                      ? ColoredBox(
-                          color: palette.glassFill,
-                          child: Icon(
-                            Icons.music_note_rounded,
-                            size: 16,
-                            color: palette.textSecondary,
-                          ),
-                        )
-                      : Image.network(
-                          widget.artworkUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => ColoredBox(
-                            color: palette.glassFill,
-                            child: Icon(
-                              Icons.music_note_rounded,
-                              size: 16,
-                              color: palette.textSecondary,
-                            ),
-                          ),
+    // The shared interactive surface, so a result row hovers and presses with
+    // the same timing as every other control rather than its own hand-rolled
+    // `AnimatedContainer`.
+    return InteractiveGlass(
+      onTap: onTap,
+      radius: Radii.row,
+      padding: const EdgeInsets.symmetric(vertical: Insets.sm, horizontal: Insets.sm),
+      semanticLabel: '$title, $subtitle',
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(round ? Radii.pill : Radii.small),
+            child: SizedBox(
+              width: Sizes.listArtwork,
+              height: Sizes.listArtwork,
+              child: artworkUrl == null
+                  ? ColoredBox(
+                      color: palette.glassFill,
+                      child: Icon(
+                        round ? Icons.person_rounded : Icons.music_note_rounded,
+                        size: 16,
+                        color: palette.textSecondary,
+                      ),
+                    )
+                  : Image.network(
+                      artworkUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => ColoredBox(
+                        color: palette.glassFill,
+                        child: Icon(
+                          round ? Icons.person_rounded : Icons.music_note_rounded,
+                          size: 16,
+                          color: palette.textSecondary,
                         ),
-                ),
-              ),
-              const SizedBox(width: Insets.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      widget.title,
-                      style: TextStyles.rowTitle.copyWith(color: palette.textPrimary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.subtitle,
-                      style: TextStyles.callout.copyWith(color: palette.textSecondary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          const SizedBox(width: Insets.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyles.rowTitle.copyWith(color: palette.textPrimary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyles.callout.copyWith(color: palette.textSecondary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -56,8 +56,11 @@ class Sidebar extends StatelessWidget {
     final palette = context.palette;
 
     return AnimatedContainer(
-      duration: Motion.normal,
-      curve: Motion.enter,
+      // A spring rather than a curve: the width is retargetable, and a person
+      // who changes their mind mid-collapse should see one continuous motion
+      // rather than a restart.
+      duration: context.motionDuration(Motion.normal),
+      curve: context.motionCurve(Motion.content),
       width: collapsed ? Sizes.sidebarCollapsedWidth : Sizes.sidebarWidth,
       child: GlassSurface(
         radius: 0,
@@ -72,12 +75,15 @@ class Sidebar extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final item in AppSection.browse)
-              _SidebarItem(
-                section: item,
-                selected: item == section,
-                collapsed: collapsed,
-                onTap: () => onSelect(item),
+            for (final (index, item) in AppSection.browse.indexed)
+              Reveal(
+                index: index,
+                child: _SidebarItem(
+                  section: item,
+                  selected: item == section,
+                  collapsed: collapsed,
+                  onTap: () => onSelect(item),
+                ),
               ),
             const SizedBox(height: Insets.md),
             if (!collapsed)
@@ -88,12 +94,15 @@ class Sidebar extends StatelessWidget {
                   style: TextStyles.subheadline.copyWith(color: palette.textSecondary),
                 ),
               ),
-            for (final item in AppSection.personal)
-              _SidebarItem(
-                section: item,
-                selected: item == section,
-                collapsed: collapsed,
-                onTap: () => onSelect(item),
+            for (final (index, item) in AppSection.personal.indexed)
+              Reveal(
+                index: index + AppSection.browse.length,
+                child: _SidebarItem(
+                  section: item,
+                  selected: item == section,
+                  collapsed: collapsed,
+                  onTap: () => onSelect(item),
+                ),
               ),
             const Spacer(),
             // The HIG warns against critical actions at the foot of a sidebar

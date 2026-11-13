@@ -18,6 +18,7 @@ use crate::frb_generated::StreamSink;
 use sosumi_core::capability::{CapabilityReport, Runtime, SharedRuntime};
 use sosumi_core::event::Event as CoreEvent;
 use sosumi_core::fairplay_sign_in::{SignIn, SignInEvent as CoreSignInEvent};
+use sosumi_core::install::InstallEvent as CoreInstallEvent;
 use sosumi_core::queue::RepeatMode as CoreRepeat;
 use sosumi_core::{Session as CoreSession, Sosumi};
 use sosumi_provider_api::{
@@ -237,6 +238,64 @@ pub struct SignInEventDto {
     pub message: Option<String>,
 }
 
+/// One step of a lossless install, as the Settings screen renders it.
+#[derive(Debug, Clone, Default)]
+pub struct InstallEventDto {
+    /// One of `started`, `progress`, `verifying`, `finished`, `cancelled`, or
+    /// `failed`.
+    pub kind: String,
+    /// The file being fetched, when the event names one.
+    pub file: Option<String>,
+    /// One-based position of `file` in the queue.
+    pub index: u32,
+    /// How many files are queued.
+    pub files: u32,
+    /// Bytes received of the current file.
+    pub done: u64,
+    /// The current file's size, when the server reported it.
+    pub total: Option<u64>,
+    /// A message fit for the screen, on failure.
+    pub message: Option<String>,
+}
+
+impl InstallEventDto {
+    /// Maps a core event into the flat shape Dart holds.
+    fn from_core(event: CoreInstallEvent) -> Self {
+        match event {
+            CoreInstallEvent::Started { files } => Self {
+                kind: "started".into(),
+                files: u32::try_from(files).unwrap_or(u32::MAX),
+                ..Self::default()
+            },
+            CoreInstallEvent::Progress { file, index, files, done, total } => Self {
+                kind: "progress".into(),
+                file: Some(file),
+                index: u32::try_from(index).unwrap_or(u32::MAX),
+                files: u32::try_from(files).unwrap_or(u32::MAX),
+                done,
+                total,
+                message: None,
+            },
+            CoreInstallEvent::Verifying { file, index, files } => Self {
+                kind: "verifying".into(),
+                file: Some(file),
+                index: u32::try_from(index).unwrap_or(u32::MAX),
+                files: u32::try_from(files).unwrap_or(u32::MAX),
+                ..Self::default()
+            },
+            CoreInstallEvent::Finished { fetched } => Self {
+                kind: "finished".into(),
+                index: u32::try_from(fetched).unwrap_or(u32::MAX),
+                ..Self::default()
+            },
+            CoreInstallEvent::Cancelled => Self { kind: "cancelled".into(), ..Self::default() },
+            CoreInstallEvent::Failed { message } => {
+                Self { kind: "failed".into(), message: Some(message), ..Self::default() }
+            }
+        }
+    }
+}
+
 impl SignInEventDto {
     fn from(event: CoreSignInEvent) -> Self {
         match event {
@@ -397,6 +456,18 @@ pub struct Engine {
     sign_in_events: tokio::sync::broadcast::Sender<CoreSignInEvent>,
     /// The in-flight native sign-in, when there is one.
     sign_in: parking_lot::RwLock<Option<Arc<SignIn>>>,
+    /// A long-lived channel of install progress.
+    ///
+    /// Owned by the engine for the same reason as the sign-in channel: a
+    /// subscriber must be able to attach before the work starts, and the natural
+    /// order for a UI is to listen first and then begin.
+    install_events: tokio::sync::broadcast::Sender<CoreInstallEvent>,
+    /// Set while a fetch is running, so the UI can cancel it and so a second
+    /// install cannot start on top of the first.
+    ///
+    /// Behind an `Arc` because the spawned task clears it when it finishes, which
+    /// is how a later start learns the slot is free.
+    install_cancel: Arc<parking_lot::RwLock<Option<Arc<std::sync::atomic::AtomicBool>>>>,
 }
 
 impl std::fmt::Debug for Engine {
@@ -478,12 +549,18 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
     // Sized for the handful of events one attempt emits, with slack for a
     // subscriber that is briefly slow.
     let (sign_in_events, _) = tokio::sync::broadcast::channel(32);
+    // Progress events arrive in bursts while a file streams, so this channel is
+    // bigger; a subscriber that lags rejoins at the newest event, which is what a
+    // progress bar wants anyway.
+    let (install_events, _) = tokio::sync::broadcast::channel(256);
 
     Ok(Engine {
         inner: Arc::new(app),
         runtime,
         sign_in_events,
         sign_in: parking_lot::RwLock::new(None),
+        install_events,
+        install_cancel: Arc::new(parking_lot::RwLock::new(None)),
     })
 }
 
@@ -922,10 +999,128 @@ impl Engine {
         self.inner.install_lossless_stubs().map_err(Into::into)
     }
 
+    /// Starts installing the lossless tier, reporting progress as it goes.
+    ///
+    /// Returns immediately; progress arrives on [`Engine::watch_install`]. The
+    /// fetch runs on the engine's runtime, so a 60 MiB download never blocks the
+    /// caller. Calling this while an install is already running is refused
+    /// rather than queued: two concurrent writes into one payload directory is
+    /// the kind of race that leaves a half-written library behind.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the runtime is not attached or an install is already running.
+    pub fn begin_lossless_install(&self) -> Result<(), BridgeError> {
+        if self.install_cancel.read().is_some() {
+            return Err(BridgeError {
+                kind: "other".into(),
+                message: "An install is already in progress".into(),
+                remedy: None,
+            });
+        }
+
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let slot = Arc::clone(&self.install_cancel);
+        *slot.write() = Some(Arc::clone(&cancel));
+
+        let inner = Arc::clone(&self.inner);
+        let events = self.install_events.clone();
+
+        self.runtime.spawn(async move {
+            let sink = events.clone();
+            let result = inner
+                .install_lossless(cancel, move |event| {
+                    let _ = sink.send(event);
+                })
+                .await;
+
+            if let Err(error) = result {
+                // Reported as an event rather than only a log: a fetch that fails
+                // has to reach the screen, or the bar sits full and nothing says
+                // why. `failed` rather than `cancelled`, so the UI can offer a
+                // retry instead of looking as though the user stopped it.
+                let _ = events.send(CoreInstallEvent::Failed { message: error.to_string() });
+                tracing::warn!(target: "sosumi::bridge", %error, "lossless install failed");
+            }
+
+            // Released last, so a start attempt during the tail of this one is
+            // still refused.
+            *slot.write() = None;
+        });
+
+        Ok(())
+    }
+
+    /// Streams install progress to the UI.
+    ///
+    /// Emits until a terminal event. Subscribing before starting is safe, which
+    /// is the order the UI uses.
+    pub fn watch_install(&self, sink: StreamSink<InstallEventDto>) {
+        let mut events = self.install_events.subscribe();
+        self.runtime.spawn(async move {
+            loop {
+                match events.recv().await {
+                    Ok(event) => {
+                        let terminal = matches!(
+                            event,
+                            CoreInstallEvent::Finished { .. }
+                                | CoreInstallEvent::Cancelled
+                                | CoreInstallEvent::Failed { .. }
+                        );
+                        if sink.add(InstallEventDto::from_core(event)).is_err() || terminal {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
+    /// Stops an install in progress.
+    ///
+    /// Files already fetched and verified are kept, so a cancel followed by
+    /// another start resumes rather than beginning again.
+    pub fn cancel_lossless_install(&self) {
+        if let Some(cancel) = self.install_cancel.read().clone() {
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
     /// Whether a lossless sign-in has completed.
     #[must_use]
     pub fn lossless_signed_in(&self) -> bool {
         self.inner.runtime().is_some_and(|runtime| runtime.has_session())
+    }
+
+    /// How ready sign-in is, as one of `ready`, `installable`, `damaged`, or
+    /// `unsupported`.
+    ///
+    /// Sign-in is done by Apple's own libraries, so those libraries must be
+    /// installed before there is anything to sign in to. Asking first is what
+    /// lets the form explain that up front, instead of collecting a password and
+    /// then refusing it — which reads as a wrong password.
+    ///
+    /// A string rather than a bool because the states have different remedies:
+    /// `installable` is the one Sosumi can fix, and `unsupported` is the one it
+    /// must not pretend to.
+    #[must_use]
+    pub fn sign_in_readiness(&self) -> String {
+        let Some(runtime) = self.inner.runtime() else {
+            // No manifest at all is a broken install rather than a missing tier,
+            // so it is not something an install press could fix.
+            return "unsupported".into();
+        };
+        if runtime.has_session() {
+            return "ready".into();
+        }
+        match runtime.probe() {
+            CapabilityReport::Ready { .. } => "ready".into(),
+            CapabilityReport::Installable { .. } => "installable".into(),
+            CapabilityReport::Damaged { .. } => "damaged".into(),
+            CapabilityReport::Unsupported { .. } => "unsupported".into(),
+        }
     }
 
     /// Starts a native sign-in to Apple.

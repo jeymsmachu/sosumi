@@ -117,12 +117,18 @@ pub fn health(renderer: &dyn Renderer) -> Health {
             action: None,
         }
     } else {
+        // The remedy names what is missing and where to get it. It deliberately
+        // does not say "from Settings": this text lives on the Settings screen, so
+        // telling someone to go there is a loop. `action` is left unset rather
+        // than carrying a command: the UI owns how a remedy is presented, and a
+        // string baked in here cannot become a link.
         Health::unavailable(
             CAPABILITY_ID,
             "Spatial Audio",
-            "No object-based renderer is installed; Spatial Audio tracks play as a downmix.",
+            "Spatial Audio tracks play as a stereo downmix. Object-based rendering \
+             needs Cavern, which Sosumi does not bundle.",
         )
-        .with_action("Install the renderer from Settings")
+        .with_action("Get Cavern")
     }
 }
 

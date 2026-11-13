@@ -54,16 +54,33 @@ than building from `main` if you want something that runs.
 ## Capabilities
 
 Sosumi is built so the core application never hard-depends on anything optional.
-The Settings screen detects each capability and offers a one-click install where
-one applies.
+Settings detects each capability and, where Sosumi can act, offers the action
+directly.
 
-| Capability | Default | Requires |
-|---|---|---|
-| AAC streaming | On | Apple Music subscription |
-| Lossless & Hi-Res | Opt-in | Optional components, second sign-in |
-| Spatial Audio | Opt-in | An external object-based renderer |
-| System media controls (MPRIS2) | On | D-Bus |
-| Discord Rich Presence | Opt-in | Discord running |
+**Lossless & Hi-Res** needs Apple's own Android libraries, which this project
+does not and cannot redistribute. Pressing Install fetches them to your machine
+(~60 MB), verifying every file against a pinned SHA-256 before it is kept, and
+shows real progress while it does. Files that fail their checksum are deleted,
+not warned about. Nothing is fetched in the background or without that press.
+`scripts/fetch-fairplay-runtime.sh` does the same thing for a terminal, and is
+what the in-app path mirrors.
+
+**Spatial Audio** needs an object renderer that Sosumi does not bundle, because
+its licence forbids sale and requires attribution. Sosumi detects one and uses it
+if present; it cannot install it for you, and says so rather than offering a
+button that cannot work.
+
+| Capability | Default | Requires | Installable in-app |
+|---|---|---|---|
+| AAC streaming | On | Apple Music subscription | — |
+| Lossless & Hi-Res | Opt-in | Apple's libraries, then a sign-in | Yes |
+| Spatial Audio | Opt-in | An external object renderer (Cavern) | No |
+| System media controls (MPRIS2) | On | D-Bus | — |
+| Discord Rich Presence | Opt-in | Discord running | — |
+
+Signing in needs Apple's libraries too, since they perform the authentication.
+The sign-in sheet checks for them first and offers the install in place, so the
+prerequisite never arrives as an unexplained failure after a correct password.
 
 ## Requirements
 

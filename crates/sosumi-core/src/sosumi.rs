@@ -207,6 +207,50 @@ impl Sosumi {
         Ok(written)
     }
 
+    /// Installs the lossless tier: the stubs this build carries, then Apple's
+    /// pinned libraries, reporting progress as they arrive.
+    ///
+    /// One entry point rather than two, because the two halves are useless apart.
+    /// The stubs are ours and always succeed; Apple's files need the network and
+    /// can fail. Running them together means the caller has one thing to start,
+    /// one stream to watch, and one place to learn the outcome.
+    ///
+    /// A failure is reported as a `CapabilitiesChanged` event after the stubs are
+    /// written, so the screen reflects the partial state rather than looking as
+    /// though nothing happened.
+    ///
+    /// # Errors
+    ///
+    /// Fails when there is no runtime attached, the stubs cannot be written, or a
+    /// payload file cannot be fetched from any pinned source.
+    pub async fn install_lossless(
+        &self,
+        cancel: Arc<std::sync::atomic::AtomicBool>,
+        report: impl Fn(crate::install::InstallEvent) + Send,
+    ) -> Result<usize> {
+        let runtime = self.runtime.clone().ok_or_else(|| ProviderError::CapabilityMissing {
+            feature: "fairplay",
+            remedy: "The runtime manifest is missing from this installation".to_owned(),
+        })?;
+
+        // Written first, so a download that fails still leaves the half that needs
+        // no network, and the next attempt has less to do.
+        runtime.install_stubs().map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        let fetched = match runtime.fetch_payload(cancel, report).await {
+            Ok(fetched) => fetched,
+            Err(error) => {
+                // Announced even on failure: the stubs above changed the state,
+                // and a screen that did not refresh would hide that.
+                self.events.publish(Event::CapabilitiesChanged);
+                return Err(ProviderError::Other(error.to_string()));
+            }
+        };
+
+        self.events.publish(Event::CapabilitiesChanged);
+        Ok(fetched)
+    }
+
     /// Registers a provider. Registering a provider with a known id replaces it.
     ///
     /// The provider immediately receives the current account, so a provider
