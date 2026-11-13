@@ -65,6 +65,19 @@ fn main() {
     }
 }
 
+/// The Android loader symbols the wrapper calls, and the shim that provides each.
+///
+/// These are checked at build time because getting one wrong is invisible until
+/// the application refuses to start: an undefined symbol in a shared object is
+/// reported when the object is *loaded*, not when it is linked, so the message
+/// names the whole library rather than the missing piece.
+const ANDROID_SHIM_MAPPINGS: &[(&str, &str)] = &[
+    ("android_dlopen", "aml_android_dlopen"),
+    ("android_dlsym", "aml_android_dlsym"),
+    ("android_dlerror", "aml_android_dlerror"),
+    ("android_update_LD_LIBRARY_PATH", "aml_android_update_LD_LIBRARY_PATH"),
+];
+
 /// Embeds the libhybris core and compiles the loader and flat C API.
 fn build_blob_and_loader(out_dir: &Path, native: &Path) {
     let hybris_core = Path::new("third_party/libhybris-core.so");
@@ -109,16 +122,22 @@ fn build_blob_and_loader(out_dir: &Path, native: &Path) {
 /// compiler parse it as C++, which rejects `malloc`'s implicit `void*`
 /// conversion — the first thing that breaks.
 fn build_session(native: &Path, session: &Path, session_c: &[&str], session_cxx: &[&str]) {
-    let common: [(&str, Option<&str>); 5] = [
-        ("DRM_LIB_BUILD", None),
-        ("MyRelease", None),
-        // `hybris_stubs.c` maps the Android loader calls the session code expects
-        // onto the embedded loader's exports. Renaming these breaks the link
-        // silently at run time rather than at compile time.
-        ("android_dlopen", Some("aml_android_dlopen")),
-        ("android_dlsym", Some("aml_android_dlsym")),
-        ("android_update_LD_LIBRARY_PATH", Some("aml_android_update_LD_LIBRARY_PATH")),
-    ];
+    // Before compiling anything: prove every Android call the wrapper makes has a
+    // mapping. Doing it first means the failure names the missing symbol rather
+    // than surfacing later as an undefined symbol at load time.
+    assert_every_android_call_is_mapped(session, session_c);
+
+    // The wrapper calls Android's loader, which does not exist here. Each call is
+    // mapped onto the embedded loader's `aml_` equivalent by `android_shim.c`,
+    // and every mapping is required: a missing one leaves the symbol undefined,
+    // which the linker reports only at load time.
+    let mut common: Vec<(&str, Option<&str>)> =
+        vec![("DRM_LIB_BUILD", None), ("MyRelease", None)];
+    common.extend(
+        ANDROID_SHIM_MAPPINGS
+            .iter()
+            .map(|(android, shim)| (*android, Some(*shim))),
+    );
 
     let quiet = [
         "-Wno-unused-variable",
@@ -167,6 +186,64 @@ fn build_session(native: &Path, session: &Path, session_c: &[&str], session_cxx:
     cxx_build.warnings(false);
     cxx_build.compile("sosumi_fairplay_session_cxx");
 }
+
+/// Fails the build if the wrapper calls an Android loader symbol that no mapping
+/// covers.
+///
+/// This is the check that would have caught the `android_dlerror` omission. The
+/// linker only reports an undefined symbol when the shared object is *loaded*, so
+/// without this the mistake reaches the user as the whole application refusing to
+/// start, with a message naming the library rather than the missing call.
+///
+/// Scans the sources rather than the objects because that is where the mistake
+/// happens: the call is written in one place and the mapping in another, and
+/// nothing links the two.
+fn assert_every_android_call_is_mapped(session: &Path, sources: &[&str]) {
+    use std::collections::BTreeSet as Set;
+
+    // What the wrapper actually calls. Read from the sources rather than trusting
+    // a list that has to be maintained by hand.
+    let mut called: Set<&str> = Set::new();
+    for name in sources {
+        // The shim *provides* the `aml_` symbols; it is not a caller.
+        if *name == "android_shim.c" {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(session.join(name)) else {
+            continue;
+        };
+        for symbol in ANDROID_LOADER_CALLS {
+            if text.contains(symbol) {
+                called.insert(symbol);
+            }
+        }
+    }
+
+    let mapped: Set<&str> = ANDROID_SHIM_MAPPINGS.iter().map(|(android, _)| *android).collect();
+    let missing: Vec<&str> =
+        called.iter().copied().filter(|symbol| !mapped.contains(symbol)).collect();
+
+    assert!(
+        missing.is_empty(),
+        "the wrapper calls these Android loader symbols, which no mapping covers: {missing:?}\n\
+         Each needs an entry in ANDROID_SHIM_MAPPINGS naming the `aml_` equivalent \
+         that android_shim.c provides. An unmapped call stays undefined, and the \
+         linker reports it only when the application is loaded — so the symptom is \
+         the whole app refusing to start rather than a link error."
+    );
+}
+
+/// The Android loader symbols the wrapper calls, so the check knows what to look
+/// for even before a mapping exists.
+///
+/// Kept beside [`ANDROID_SHIM_MAPPINGS`] deliberately: adding a call to the
+/// wrapper means adding it here, which is the prompt to add its mapping too.
+const ANDROID_LOADER_CALLS: [&str; 4] = [
+    "android_dlopen",
+    "android_dlsym",
+    "android_dlerror",
+    "android_update_LD_LIBRARY_PATH",
+];
 
 /// Builds the three Android stub libraries and embeds them as bytes.
 ///
