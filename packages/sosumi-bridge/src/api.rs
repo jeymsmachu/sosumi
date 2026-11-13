@@ -488,6 +488,51 @@ impl Engine {
         self.inner.set_session(session);
     }
 
+    /// Starts the audio engine.
+    ///
+    /// Called once after construction. A failure is reported through the event
+    /// stream rather than raised, because browsing must keep working on a
+    /// machine with no sound card.
+    pub fn start_audio(&self) {
+        self.inner.start_audio();
+    }
+
+    /// True when audio output is available.
+    #[must_use]
+    pub fn audio_ready(&self) -> bool {
+        self.inner.audio_ready()
+    }
+
+    /// Pauses playback.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the `capability` kind when no audio device is available.
+    pub fn pause(&self) -> Result<(), BridgeError> {
+        self.inner.pause()?;
+        Ok(())
+    }
+
+    /// Resumes playback.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the `capability` kind when no audio device is available.
+    pub fn resume(&self) -> Result<(), BridgeError> {
+        self.inner.resume()?;
+        Ok(())
+    }
+
+    /// Stops playback and unloads the track.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the `capability` kind when no audio device is available.
+    pub fn stop(&self) -> Result<(), BridgeError> {
+        self.inner.stop()?;
+        Ok(())
+    }
+
     /// The storefront in use.
     #[must_use]
     pub fn storefront(&self) -> String {

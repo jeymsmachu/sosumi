@@ -10,7 +10,7 @@
 //! avoids a hidden task that outlives its owner — consistent with the
 //! single-process decision in `docs/adr/0001`.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use parking_lot::Mutex;
 
@@ -34,7 +34,7 @@ pub enum PlayerState {
 /// A loaded track, ready to be pumped.
 pub struct Player {
     decoder: Mutex<Decoder>,
-    output: Option<Arc<OutputDevice>>,
+    output: Option<Rc<OutputDevice>>,
     state: Mutex<PlayerState>,
     /// Decoded frames emitted so far, for position reporting.
     frames_played: Mutex<u64>,
@@ -63,7 +63,7 @@ impl Player {
     pub fn load(
         data: Vec<u8>,
         hint: &str,
-        output: Option<Arc<OutputDevice>>,
+        output: Option<Rc<OutputDevice>>,
     ) -> Result<Self, DecodeError> {
         let decoder = Decoder::new(data, hint)?;
         let sample_rate = decoder.format().sample_rate;

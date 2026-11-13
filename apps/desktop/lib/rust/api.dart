@@ -27,6 +27,9 @@ Future<List<String>> knownProviders() =>
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Engine>>
 abstract class Engine implements RustOpaqueInterface {
+  /// True when audio output is available.
+  Future<bool> audioReady();
+
   /// Appends a track to the queue, returning the new length.
   Future<BigInt> enqueue({required String id});
 
@@ -43,6 +46,13 @@ abstract class Engine implements RustOpaqueInterface {
   ///
   /// Fails with a mapped [`BridgeError`] when opening the next stream fails.
   Future<TrackDto?> next();
+
+  /// Pauses playback.
+  ///
+  /// # Errors
+  ///
+  /// Fails with the `capability` kind when no audio device is available.
+  Future<void> pause();
 
   /// The operating system this build targets.
   Future<String> platform();
@@ -63,6 +73,13 @@ abstract class Engine implements RustOpaqueInterface {
 
   /// The number of queued tracks.
   Future<BigInt> queueLen();
+
+  /// Resumes playback.
+  ///
+  /// # Errors
+  ///
+  /// Fails with the `capability` kind when no audio device is available.
+  Future<void> resume();
 
   /// Searches the catalog.
   ///
@@ -99,6 +116,20 @@ abstract class Engine implements RustOpaqueInterface {
 
   /// Signs out.
   Future<void> signOut();
+
+  /// Starts the audio engine.
+  ///
+  /// Called once after construction. A failure is reported through the event
+  /// stream rather than raised, because browsing must keep working on a
+  /// machine with no sound card.
+  Future<void> startAudio();
+
+  /// Stops playback and unloads the track.
+  ///
+  /// # Errors
+  ///
+  /// Fails with the `capability` kind when no audio device is available.
+  Future<void> stop();
 
   /// The storefront in use.
   Future<String> storefront();

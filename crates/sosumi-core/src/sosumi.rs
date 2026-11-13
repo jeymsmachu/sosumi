@@ -19,6 +19,7 @@ use sosumi_provider_api::{
 use sosumi_storage::{Paths, SecretStore};
 
 use crate::event::{Event, EventBus, EventReceiver};
+use crate::playback::PlaybackEngine;
 use crate::queue::Queue;
 use crate::session::Session;
 
@@ -34,6 +35,10 @@ pub struct Sosumi {
     /// The track currently loaded. A [`PlaybackSession`] is single-use because
     /// it owns a reader, so only its identity is retained here.
     current: RwLock<Option<TrackId>>,
+    /// The audio engine. Absent when no output device is available, which keeps
+    /// the app usable for browsing on a machine with no sound card. Held behind
+    /// an `Arc` so a caller can clone it out and await without the lock.
+    playback: RwLock<Option<Arc<PlaybackEngine>>>,
 }
 
 impl std::fmt::Debug for Sosumi {
@@ -44,6 +49,7 @@ impl std::fmt::Debug for Sosumi {
             .field("queue_len", &self.queue.read().len())
             .field("signed_in", &self.session.read().is_signed_in())
             .field("quality", &*self.quality.read())
+            .field("audio", &self.playback.read().is_some())
             .finish_non_exhaustive()
     }
 }
@@ -65,7 +71,82 @@ impl Sosumi {
             paths,
             quality: RwLock::new(AudioQuality::High),
             current: RwLock::new(None),
+            playback: RwLock::new(None),
         })
+    }
+
+    /// Starts the audio engine.
+    ///
+    /// Absent by default rather than at construction, because a machine with no
+    /// output device must still be able to browse. A failure here is logged and
+    /// reported as health, not raised to the caller.
+    pub fn start_audio(&self) {
+        match PlaybackEngine::new(self.events.clone()) {
+            Ok(engine) => {
+                tracing::info!(target: "sosumi::core", "audio engine started");
+                *self.playback.write() = Some(Arc::new(engine));
+            }
+            Err(error) => {
+                tracing::warn!(target: "sosumi::core", %error, "audio engine unavailable");
+                self.events
+                    .publish(Event::Error { message: format!("Playback is unavailable: {error}") });
+            }
+        }
+    }
+
+    /// True when audio output is available.
+    #[must_use]
+    pub fn audio_ready(&self) -> bool {
+        self.playback.read().is_some()
+    }
+
+    /// Pauses playback.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the audio engine is not running.
+    pub fn pause(&self) -> Result<()> {
+        self.playback_engine()
+            .ok_or_else(|| ProviderError::CapabilityMissing {
+                feature: "audio",
+                remedy: "No audio output device is available".into(),
+            })?
+            .pause()?;
+        self.events.publish(Event::Paused);
+        Ok(())
+    }
+
+    /// Resumes playback.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the audio engine is not running.
+    pub fn resume(&self) -> Result<()> {
+        self.playback_engine()
+            .ok_or_else(|| ProviderError::CapabilityMissing {
+                feature: "audio",
+                remedy: "No audio output device is available".into(),
+            })?
+            .play()?;
+        self.events.publish(Event::Playing);
+        Ok(())
+    }
+
+    /// Stops playback and unloads the track.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the audio engine is not running.
+    pub fn stop(&self) -> Result<()> {
+        self.playback_engine()
+            .ok_or_else(|| ProviderError::CapabilityMissing {
+                feature: "audio",
+                remedy: "No audio output device is available".into(),
+            })?
+            .stop()?;
+        *self.current.write() = None;
+        self.events.publish(Event::Stopped);
+        Ok(())
     }
 
     /// Registers a provider. Registering a provider with a known id replaces it.
@@ -271,6 +352,10 @@ impl Sosumi {
 
     /// Opens a specific track and announces it as the current one.
     ///
+    /// When audio is available the stream is also loaded and started, so a
+    /// caller only has to name a track. Without an audio device the metadata is
+    /// still published, which is what lets the UI browse on a silent machine.
+    ///
     /// # Errors
     ///
     /// Propagates provider failures. On failure an [`Event::Error`] is also
@@ -280,6 +365,17 @@ impl Sosumi {
             Ok(session) => {
                 let metadata = self.provider()?.track(id).await.ok();
                 self.publish_track_change(id, metadata.as_ref(), &session);
+
+                // The engine is held behind a lock, and loading awaits a network
+                // fetch. Cloning it out first means the guard is never held
+                // across an await point, which is what avoids a deadlock with
+                // any other thread touching playback.
+                if let Some(engine) = self.playback_engine() {
+                    if let Err(error) = engine.load(&session).await {
+                        tracing::warn!(target: "sosumi::core", %error, "could not start audio");
+                        self.events.publish(Event::Error { message: error.to_string() });
+                    }
+                }
                 Ok(session)
             }
             Err(err) => {
@@ -287,6 +383,14 @@ impl Sosumi {
                 Err(err)
             }
         }
+    }
+
+    /// Clones the audio engine handle out of the lock.
+    ///
+    /// A shared handle rather than the guard, so callers can await without
+    /// holding the playback lock.
+    fn playback_engine(&self) -> Option<Arc<PlaybackEngine>> {
+        self.playback.read().clone()
     }
 
     /// Announces the current track.
@@ -414,5 +518,45 @@ mod tests {
     fn an_empty_queue_reports_no_current_track() {
         let app = app();
         assert!(app.current_track().is_none());
+    }
+
+    #[test]
+    fn audio_is_absent_until_started() {
+        let app = app();
+        assert!(!app.audio_ready());
+    }
+
+    #[test]
+    fn transport_commands_without_a_device_report_a_capability_gap() {
+        // A machine with no output device still runs the app; transport is the
+        // one thing that cannot work, and it must say so rather than panic.
+        let app = app();
+        if app.audio_ready() {
+            return;
+        }
+        let error = app.pause().expect_err("pause must fail without audio");
+        assert!(matches!(error, ProviderError::CapabilityMissing { feature: "audio", .. }));
+        assert!(app.resume().is_err());
+        assert!(app.stop().is_err());
+    }
+
+    #[test]
+    fn starting_audio_publishes_transport_events() {
+        let app = app();
+        app.start_audio();
+        if !app.audio_ready() {
+            return;
+        }
+
+        let mut events = app.subscribe();
+        app.pause().expect("pause");
+        assert!(matches!(events.try_next_event(), Some(Event::Paused)));
+
+        app.resume().expect("resume");
+        assert!(matches!(events.try_next_event(), Some(Event::Playing)));
+
+        app.stop().expect("stop");
+        assert!(matches!(events.try_next_event(), Some(Event::Stopped)));
+        assert!(app.loaded_track().is_none(), "stopping must unload the track");
     }
 }

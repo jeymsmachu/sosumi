@@ -132,6 +132,35 @@ class PlayerController extends StateNotifier<PlayerState> {
     }
   }
 
+  /// Toggles between playing and paused.
+  Future<void> togglePlayPause() async {
+    if (state.track == null) return;
+    final resume = state.status != PlaybackStatus.playing;
+    try {
+      if (resume) {
+        await _engine.resume();
+      } else {
+        await _engine.pause();
+      }
+      // The state change arrives as an event; nothing is set here so the core
+      // stays the single source of truth.
+    } on Exception catch (error) {
+      state = state.copyWith(error: '$error');
+    }
+  }
+
+  /// Starts the audio engine.
+  ///
+  /// Called once at startup. Failure is not fatal: browsing still works, and the
+  /// core reports the reason through the event stream.
+  Future<void> startAudio() async {
+    try {
+      await _engine.startAudio();
+    } on Exception catch (error) {
+      state = state.copyWith(error: '$error');
+    }
+  }
+
   /// Plays the next track in the queue.
   Future<void> next() async {
     try {

@@ -358,6 +358,7 @@ mod tests {
 
         assert_eq!(session.info.codec, Codec::Flac);
         match session.source {
+            AudioSource::Hls { segments, .. } => assert!(!segments.is_empty()),
             AudioSource::Http { url, .. } => assert!(url.starts_with("file://")),
             AudioSource::Decrypting(_) => panic!("expected a file source"),
         }

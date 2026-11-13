@@ -37,10 +37,7 @@ class PlayerBar extends ConsumerWidget {
             ),
             _Transport(
               player: player,
-              onPlayPause: () {
-                // Transport control is wired to the engine once the Rust
-                // player exposes pause; the UI reflects state today.
-              },
+              onPlayPause: controller.togglePlayPause,
               onNext: controller.next,
               onPrevious: () {},
             ),

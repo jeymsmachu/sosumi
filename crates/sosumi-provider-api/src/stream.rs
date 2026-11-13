@@ -141,10 +141,21 @@ pub struct StreamRequest {
 /// Encrypted sources use a decrypting reader, so the audio layer never handles
 /// key material or provider-specific DRM.
 pub enum AudioSource {
-    /// Continuous bytes from an HTTP(S) URL. The reader seeks with `Range`.
+    /// Continuous bytes from an HTTP(S) URL that can be read with `Range`.
+    /// Used for progressive files and local media.
     Http {
         url: String,
         /// Extra headers the provider requires, e.g. authorization.
+        headers: Vec<(String, String)>,
+    },
+    /// An HLS presentation: the ordered segment URLs that make up one track.
+    ///
+    /// Apple serves audio this way. The segments are byte-ranges of a single
+    /// fragmented MP4, so concatenating them in order yields a playable stream.
+    Hls {
+        /// Segment URLs, in playback order.
+        segments: Vec<String>,
+        /// Extra headers every segment request needs.
         headers: Vec<(String, String)>,
     },
     /// Bytes produced by a decrypting reader.
@@ -186,6 +197,7 @@ impl AudioSource {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Http { .. } => "http",
+            Self::Hls { .. } => "hls",
             Self::Decrypting(_) => "decrypting",
         }
     }
