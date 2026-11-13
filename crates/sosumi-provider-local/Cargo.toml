@@ -1,0 +1,25 @@
+[package]
+name = "sosumi-provider-local"
+description = "Plays audio files from the user's own library."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sosumi-diagnostics.workspace = true
+sosumi-metadata.workspace = true
+sosumi-provider-api.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

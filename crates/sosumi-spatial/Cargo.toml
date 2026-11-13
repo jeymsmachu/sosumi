@@ -1,0 +1,23 @@
+[package]
+name = "sosumi-spatial"
+description = "Object-based audio rendering, with a pluggable backend."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sosumi-diagnostics.workspace = true
+sosumi-provider-api.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

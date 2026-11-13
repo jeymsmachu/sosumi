@@ -1,0 +1,24 @@
+[package]
+name = "sosumi-linux"
+description = "Desktop integration: MPRIS2 media controls over D-Bus."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sosumi-diagnostics.workspace = true
+sosumi-provider-api.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+zbus.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

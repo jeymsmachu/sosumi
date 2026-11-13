@@ -24,6 +24,11 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libdbus-1-dev libsecret-1-dev pkg-config
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -31,23 +36,79 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-targets
 
-  docs:
-    name: Docs
+  codegen:
+    name: Bindings are current
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Check links in docs
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install flutter_rust_bridge_codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.13.0 --locked
+      - name: Regenerate bindings
+        working-directory: packages/sosumi-bridge
+        run: flutter_rust_bridge_codegen generate
+      # The generated bindings are committed so a build needs no codegen
+      # toolchain. This step fails when src/api.rs changed without a regenerate.
+      - name: Fail if bindings are stale
+        run: |
+          if ! git diff --exit-code -- packages/sosumi-bridge/src apps/desktop/lib/rust; then
+            echo "::error::Generated bindings are out of date. Run 'flutter_rust_bridge_codegen generate' in packages/sosumi-bridge and commit the result."
+            exit 1
+          fi
+
+  dart:
+    name: Flutter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: flutter pub get
+      - name: Analyze
+        working-directory: apps/desktop
+        run: flutter analyze
+      - name: Test
+        working-directory: apps/desktop
+        run: flutter test
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check relative documentation links resolve
         run: |
           set -euo pipefail
-          # Fail if a referenced docs file does not exist.
+          status=0
           while IFS= read -r link; do
             target="${link%%#*}"
             [ -z "$target" ] && continue
+            case "$target" in
+              http*|mailto:*) continue ;;
+            esac
             if [ ! -e "$target" ]; then
-              echo "broken docs link: $link"
-              exit 1
+              echo "::error::broken documentation link: $link"
+              status=1
             fi
-          done < <(grep -rhoE '\]\(([^):#][^)]*\.md)\)' docs README.md CONTRIBUTING.md \
-            | sed -E 's/^\]\(//; s/\)$//' | sort -u)
+          done < <(
+            grep -rhoE '\]\([^)]+\.md(#[^)]*)?\)' docs README.md CONTRIBUTING.md \
+              | sed -E 's/^\]\(//; s/\)$//' | sort -u
+          )
+          exit "$status"
+      - name: Every adr is linked from the index
+        run: |
+          set -euo pipefail
+          for adr in docs/adr/[0-9]*.md; do
+            name=$(basename "$adr")
+            grep -q "$name" docs/adr/README.md || {
+              echo "::error::$adr is not listed in docs/adr/README.md"
+              exit 1
+            }
+          done
