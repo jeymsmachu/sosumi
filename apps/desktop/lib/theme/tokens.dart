@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// Layout and shape constants.
+/// Layout, shape, and motion constants.
 ///
-/// One place for the values that make the app feel consistent: corner radii,
-/// spacing steps, and the control sizes that line up across screens.
+/// The radii are Apple's: their CSS uses 10, 16, 20 and fully-rounded pills, and
+/// the nested-radius rule (a container inside another uses a smaller radius) is
+/// what keeps curves concentric.
 abstract final class Insets {
   /// The smallest gap, between an icon and its label.
   static const double xs = 4;
@@ -24,61 +25,68 @@ abstract final class Insets {
   static const double page = 24;
 }
 
-/// Corner radii, following the nested-radius idea: a container inside another
-/// uses a smaller radius so the curves stay concentric.
+/// Corner radii.
 abstract final class Radii {
   /// Small controls: chips, badges.
-  static const double small = 8;
+  static const double small = 6;
 
-  /// Standard controls: buttons, fields.
-  static const double medium = 12;
+  /// The sidebar row and similar controls. Apple uses 10 here.
+  static const double row = 10;
 
   /// Cards and list rows.
   static const double large = 16;
 
-  /// Panels and sheets.
+  /// Panels and sheets. Apple uses 20 for these.
   static const double panel = 20;
 
-  /// The floating player bar.
+  /// The floating player bar. Apple uses 24 for its floating transport.
   static const double player = 24;
 
   /// A pill: fully rounded ends.
   static const double pill = 999;
 }
 
-/// Durations and curves for motion.
+/// Durations and curves.
+///
+/// Apple's own guidance is that motion should be quick and unhurried: 0.2-0.3 s
+/// for a control, longer for a panel. The curves are the standard ease-out for
+/// arrival and ease-in for departure, with a slight overshoot reserved for
+/// controls settling.
 abstract final class Motion {
-  /// Hover and tap feedback. Short enough to feel immediate.
+  /// Hover and press feedback.
   static const Duration fast = Duration(milliseconds: 120);
 
   /// Panel and colour transitions.
-  static const Duration normal = Duration(milliseconds: 240);
+  static const Duration normal = Duration(milliseconds: 220);
 
   /// Full-screen transitions and reveals.
-  static const Duration slow = Duration(milliseconds: 420);
+  static const Duration slow = Duration(milliseconds: 380);
 
-  /// The curve for elements arriving on screen.
+  /// Elements arriving on screen.
   static const Curve enter = Curves.easeOutCubic;
 
-  /// The curve for elements leaving.
+  /// Elements leaving.
   static const Curve exit = Curves.easeInCubic;
 
-  /// The curve for a control returning to rest.
+  /// A control returning to rest, with the small overshoot Apple uses.
   static const Curve settle = Curves.easeOutBack;
 }
 
-/// Fixed sizes that several screens must agree on.
+/// Fixed sizes several screens must agree on.
 abstract final class Sizes {
-  /// The sidebar's default width.
-  static const double sidebarWidth = 232;
+  /// The sidebar width.
+  static const double sidebarWidth = 220;
 
-  /// The sidebar's compact width, when collapsed.
-  static const double sidebarCollapsedWidth = 68;
+  /// The sidebar width when only icons are shown.
+  static const double sidebarCollapsedWidth = 60;
+
+  /// A sidebar row's height.
+  static const double sidebarRowHeight = 30;
 
   /// The floating player's height.
-  static const double playerHeight = 72;
+  static const double playerHeight = 64;
 
-  /// A standard list artwork.
+  /// A standard list artwork in a track row. Apple uses 40.
   static const double listArtwork = 40;
 
   /// Grid artwork.
@@ -87,80 +95,122 @@ abstract final class Sizes {
   /// The large artwork on a detail page.
   static const double heroArtwork = 240;
 
-  /// The title-bar height, for the drag region.
-  static const double titleBarHeight = 44;
+  /// The soft edge inset for the floating player, so it reads as a floating
+  /// capsule rather than a docked bar.
+  static const double playerInset = 12;
 }
 
-/// TextStyles.
+/// The type scale.
 ///
-/// Sizes and weights follow Apple's scale closely enough to feel native. The
-/// font is the platform's: Flutter resolves it to the system UI font, which on
-/// Linux is whatever the user configured.
+/// Sizes and weights are Apple's macOS values, which the web player's CSS also
+/// uses: a 13 px body, a 15/17/22 title ramp, and 10 px captions. Allowing the
+/// platform to render at these sizes rather than scaling them up is what makes
+/// the app look native instead of like a web page in a window.
+///
+/// Line heights are Apple's, expressed as a multiple for Flutter.
 abstract final class TextStyles {
-  /// A page title.
+  /// A hero title, such as a page header. 26/32 semibold.
   static const TextStyle largeTitle = TextStyle(
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: FontWeight.w700,
-    letterSpacing: -0.4,
-    height: 1.15,
+    letterSpacing: 0.36,
+    height: 1.23,
   );
 
-  /// A section heading.
-  static const TextStyle title = TextStyle(
-    fontSize: 20,
+  /// Title 1. 22/26.
+  static const TextStyle title1 = TextStyle(
+    fontSize: 22,
     fontWeight: FontWeight.w700,
-    letterSpacing: -0.2,
-    height: 1.2,
+    letterSpacing: -0.26,
+    height: 1.18,
   );
 
-  /// A group heading inside a page.
-  static const TextStyle headline = TextStyle(
+  /// Title 2, for section headings. 17/22.
+  static const TextStyle title2 = TextStyle(
+    fontSize: 17,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.43,
+    height: 1.29,
+  );
+
+  /// Title 3. 15/20.
+  static const TextStyle title3 = TextStyle(
     fontSize: 15,
     fontWeight: FontWeight.w600,
-    height: 1.3,
+    letterSpacing: -0.24,
+    height: 1.33,
   );
 
-  /// Body copy.
+  /// Headline: 13/16 semibold. Used for emphasised body text.
+  static const TextStyle headline = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.08,
+    height: 1.23,
+  );
+
+  /// Body: 13/16 regular. The default for essentially all text.
   static const TextStyle body = TextStyle(
     fontSize: 13,
     fontWeight: FontWeight.w400,
-    height: 1.35,
+    letterSpacing: -0.08,
+    height: 1.23,
   );
 
-  /// A list row's primary line.
-  static const TextStyle rowTitle = TextStyle(
-    fontSize: 13.5,
-    fontWeight: FontWeight.w500,
-    height: 1.3,
-  );
-
-  /// A list row's secondary line.
-  static const TextStyle rowSubtitle = TextStyle(
+  /// Callout: 12/15.
+  static const TextStyle callout = TextStyle(
     fontSize: 12,
     fontWeight: FontWeight.w400,
+    letterSpacing: 0,
+    height: 1.25,
+  );
+
+  /// Subheadline: 11/14.
+  static const TextStyle subheadline = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w400,
+    letterSpacing: 0.07,
+    height: 1.27,
+  );
+
+  /// Footnote: 10/13.
+  static const TextStyle footnote = TextStyle(
+    fontSize: 10,
+    fontWeight: FontWeight.w400,
+    letterSpacing: 0.12,
     height: 1.3,
   );
 
-  /// Labels on controls.
-  static const TextStyle control = TextStyle(
-    fontSize: 13,
-    fontWeight: FontWeight.w500,
-    height: 1.2,
+  /// Caption 1: 10/13.
+  static const TextStyle caption1 = TextStyle(
+    fontSize: 10,
+    fontWeight: FontWeight.w400,
+    letterSpacing: 0.12,
+    height: 1.3,
   );
 
-  /// A small caption or badge.
-  static const TextStyle caption = TextStyle(
-    fontSize: 11,
+  /// Caption 2: 10/13 medium. For the smallest labels, such as a badge.
+  static const TextStyle caption2 = TextStyle(
+    fontSize: 10,
     fontWeight: FontWeight.w500,
-    letterSpacing: 0.2,
-    height: 1.2,
+    letterSpacing: 0.12,
+    height: 1.3,
   );
 
-  /// A numeric readout, such as a timecode.
+  /// A numeric readout. Tabular figures keep a changing timecode from shifting.
   static const TextStyle numeric = TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w500,
+    letterSpacing: 0.07,
+    height: 1.27,
     fontFeatures: [FontFeature.tabularFigures()],
-    height: 1.2,
+  );
+
+  /// An emphasised row title, for the playing track in a list.
+  static const TextStyle rowTitle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.08,
+    height: 1.23,
   );
 }

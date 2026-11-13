@@ -320,7 +320,22 @@ pub fn create_engine() -> Result<Engine, BridgeError> {
     // the app still browses, and the core reports the reason as an event.
     app.start_audio();
 
+    // Restore a previous sign-in so the user does not authenticate every launch.
+    // A failure is not fatal: it means the store is unreadable, and signing in
+    // again repairs it.
+    if let Ok(sealer) = machine_sealer() {
+        if let Err(error) = app.restore_session(sealer) {
+            tracing::warn!(target: "sosumi::bridge", %error, "could not restore the session");
+        }
+    }
+
     Ok(Engine { inner: Arc::new(app), runtime })
+}
+
+/// The sealing key for the local store.
+fn machine_sealer() -> anyhow::Result<sosumi_security::Sealer> {
+    let key = sosumi_security::sealing::machine_key()?;
+    sosumi_security::Sealer::new(&key, "local")
 }
 
 /// The directories to scan for local music.
@@ -497,11 +512,17 @@ impl Engine {
         SessionDto::from(&self.inner.session())
     }
 
-    /// Records a signed-in session.
+    /// Records a signed-in session and persists it.
+    ///
+    /// The session is handed to every provider immediately, so a search or a
+    /// playback request made straight after this call is authenticated. It is
+    /// also written to the encrypted store, so a restart does not require
+    /// signing in again.
     ///
     /// # Errors
     ///
-    /// Fails when the session cannot be persisted.
+    /// Fails when the store cannot be written. The in-memory session is still
+    /// applied, so a failed write costs persistence rather than the sign-in.
     pub fn set_session(
         &self,
         music_user_token: String,
@@ -510,15 +531,24 @@ impl Engine {
         let mut session = CoreSession::new();
         session.set_music_user_token(music_user_token);
         session.set_storefront(storefront);
-        self.inner.set_session(session);
+
+        self.inner.set_session(session)?;
+
+        if let Ok(sealer) = machine_sealer() {
+            self.inner.persist_session(sealer)?;
+        }
+
         Ok(SessionDto::from(&self.inner.session()))
     }
 
-    /// Signs out.
+    /// Signs out and clears the persisted session.
     pub fn sign_out(&self) {
         let mut session = CoreSession::new();
         session.set_storefront(self.inner.session().storefront);
-        self.inner.set_session(session);
+        let _ = self.inner.set_session(session);
+        if let Ok(sealer) = machine_sealer() {
+            let _ = self.inner.persist_session(sealer);
+        }
     }
 
     /// Starts the audio engine.

@@ -20,6 +20,15 @@ const USER_AGENT: &str = concat!(
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 );
 
+/// The origin Apple's developer token is scoped to.
+///
+/// The token carries `root_https_origin: ["apple.com"]`, and the API rejects a
+/// request without a matching `Origin`. This is not optional.
+const ORIGIN: &str = "https://music.apple.com";
+
+/// The referer the web player sends. Sent alongside the origin for consistency.
+const REFERER: &str = "https://music.apple.com/";
+
 /// A pooled HTTP client.
 #[derive(Debug, Clone)]
 pub struct HttpClient {
@@ -66,12 +75,7 @@ impl HttpClient {
         url: &str,
         bearer: Option<&str>,
     ) -> Result<T, ProviderError> {
-        let mut request = self.inner.get(url);
-        if let Some(token) = bearer {
-            request = request.bearer_auth(token);
-        }
-        let response = request.send().await.map_err(|e| map_transport(&e))?;
-        let response = check_status(response).await?;
+        let response = self.send_get(url, bearer).await?;
         response.json::<T>().await.map_err(|e| ProviderError::Malformed(e.to_string()))
     }
 
@@ -83,13 +87,31 @@ impl HttpClient {
     ///
     /// Returns a mapped [`ProviderError`] for transport or status failures.
     pub async fn get_text(&self, url: &str, bearer: Option<&str>) -> Result<String, ProviderError> {
-        let mut request = self.inner.get(url);
+        let response = self.send_get(url, bearer).await?;
+        response.text().await.map_err(|e| ProviderError::Network(e.to_string()))
+    }
+
+    /// Builds and sends a GET with the headers Apple's API requires.
+    ///
+    /// Apple's developer token is scoped to `root_https_origin: ["apple.com"]`,
+    /// so the API rejects any request that does not carry an `Origin` header
+    /// naming the web player. Omitting it returns a bare 401, which reads as
+    /// "not signed in" and is easy to misdiagnose as an auth problem.
+    async fn send_get(
+        &self,
+        url: &str,
+        bearer: Option<&str>,
+    ) -> Result<reqwest::Response, ProviderError> {
+        let mut request = self
+            .inner
+            .get(url)
+            .header(reqwest::header::ORIGIN, ORIGIN)
+            .header(reqwest::header::REFERER, REFERER);
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
         let response = request.send().await.map_err(|e| map_transport(&e))?;
-        let response = check_status(response).await?;
-        response.text().await.map_err(|e| ProviderError::Network(e.to_string()))
+        check_status(response).await
     }
 
     /// Issues a POST with a JSON body and decodes the JSON response.
@@ -104,7 +126,12 @@ impl HttpClient {
         bearer: Option<&str>,
         body: &B,
     ) -> Result<T, ProviderError> {
-        let mut request = self.inner.post(url).json(body);
+        let mut request = self
+            .inner
+            .post(url)
+            .header(reqwest::header::ORIGIN, ORIGIN)
+            .header(reqwest::header::REFERER, REFERER)
+            .json(body);
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
@@ -127,8 +154,13 @@ impl HttpClient {
         body: Vec<u8>,
         content_type: &str,
     ) -> Result<Vec<u8>, ProviderError> {
-        let mut request =
-            self.inner.post(url).header(reqwest::header::CONTENT_TYPE, content_type).body(body);
+        let mut request = self
+            .inner
+            .post(url)
+            .header(reqwest::header::ORIGIN, ORIGIN)
+            .header(reqwest::header::REFERER, REFERER)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body);
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }

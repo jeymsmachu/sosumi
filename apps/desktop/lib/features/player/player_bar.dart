@@ -4,12 +4,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/player.dart';
 import '../../theme/theme.dart';
 
-/// The floating player.
+/// The floating transport.
 ///
-/// Apple moved the transport to a floating control at the bottom of the window,
-/// so the glass reads over the content behind it. This mirrors that: a rounded
-/// panel, inset from the edges, carrying artwork, title, transport, and a
-/// scrubbable progress line.
+/// Apple moved the transport into a floating capsule at the bottom of the
+/// window rather than a strip docked to the edge, so the material reads over the
+/// content scrolling beneath it. This is the same shape, and the same
+/// proportions: a centred capsule roughly half the window's width, not a
+/// full-bleed bar.
+///
+/// It is one of only two glass surfaces in the app, which is what keeps the
+/// material meaning "this is a control" rather than "this is a panel".
 class PlayerBar extends ConsumerWidget {
   const PlayerBar({super.key});
 
@@ -17,38 +21,52 @@ class PlayerBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final player = ref.watch(playerProvider);
     final controller = ref.read(playerProvider.notifier);
+    final palette = context.palette;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(Insets.md, 0, Insets.md, Insets.md),
-      child: GlassSurface(
-        radius: Radii.player,
-        blur: 32,
-        padding: const EdgeInsets.symmetric(
-          horizontal: Insets.md,
-          vertical: Insets.sm,
-        ),
-        child: Row(
-          children: [
-            _Artwork(player: player),
-            const SizedBox(width: Insets.md),
-            Expanded(
-              flex: 3,
-              child: _TrackInfo(player: player),
+      padding: const EdgeInsets.only(bottom: Sizes.playerInset),
+      child: Center(
+        child: ConstrainedBox(
+          // A max width keeps the capsule from stretching across a wide monitor,
+          // which is what made it read as a toolbar instead of a floating
+          // control. It grows with the window up to this cap.
+          constraints: const BoxConstraints(maxWidth: 880),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Sizes.playerInset),
+            child: GlassSurface(
+              radius: Radii.player,
+              blur: 34,
+              fill: palette.playerFill,
+              padding: const EdgeInsets.symmetric(horizontal: Insets.md),
+              child: SizedBox(
+                height: Sizes.playerHeight,
+                child: Row(
+                  children: [
+                    _Artwork(player: player),
+                    const SizedBox(width: Insets.md),
+                    Flexible(
+                      flex: 3,
+                      child: _TrackInfo(player: player),
+                    ),
+                    const Spacer(),
+                    _Transport(
+                      player: player,
+                      onPlayPause: controller.togglePlayPause,
+                      onNext: controller.next,
+                      onPrevious: () {},
+                    ),
+                    const Spacer(),
+                    Flexible(
+                      flex: 3,
+                      child: _Progress(player: player),
+                    ),
+                    const SizedBox(width: Insets.sm),
+                    const _Volume(),
+                  ],
+                ),
+              ),
             ),
-            _Transport(
-              player: player,
-              onPlayPause: controller.togglePlayPause,
-              onNext: controller.next,
-              onPrevious: () {},
-            ),
-            const SizedBox(width: Insets.md),
-            Expanded(
-              flex: 3,
-              child: _Progress(player: player),
-            ),
-            const SizedBox(width: Insets.md),
-            _Volume(),
-          ],
+          ),
         ),
       ),
     );
@@ -62,36 +80,28 @@ class _Artwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
     final url = player.track?.artworkUrl;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(Radii.small),
       child: SizedBox(
-        width: 48,
-        height: 48,
+        width: 44,
+        height: 44,
         child: url == null
-            ? ColoredBox(
-                color: context.palette.glassFill,
-                child: Icon(
-                  Icons.music_note_rounded,
-                  size: 20,
-                  color: context.palette.textSecondary,
-                ),
-              )
+            ? ColoredBox(color: palette.fill, child: _placeholder(palette))
             : Image.network(
                 url,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => ColoredBox(
-                  color: context.palette.glassFill,
-                  child: Icon(
-                    Icons.music_note_rounded,
-                    size: 20,
-                    color: context.palette.textSecondary,
-                  ),
-                ),
+                errorBuilder: (_, _, _) =>
+                    ColoredBox(color: palette.fill, child: _placeholder(palette)),
               ),
       ),
     );
   }
+
+  Widget _placeholder(SosumiPalette palette) =>
+      Icon(Icons.music_note_rounded, size: 18, color: palette.textTertiary);
 }
 
 class _TrackInfo extends StatelessWidget {
@@ -110,15 +120,15 @@ class _TrackInfo extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          track?.title ?? 'Nothing playing',
-          style: TextStyles.rowTitle.copyWith(color: palette.textPrimary),
+          track?.title ?? 'Nothing Playing',
+          style: TextStyles.body.copyWith(color: palette.textPrimary),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 1),
         Text(
           track?.artist ?? 'Choose something to listen to',
-          style: TextStyles.rowSubtitle.copyWith(color: palette.textSecondary),
+          style: TextStyles.subheadline.copyWith(color: palette.textSecondary),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -142,8 +152,8 @@ class _Transport extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.palette;
     final playing = player.status == PlaybackStatus.playing;
+    final enabled = player.track != null;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -151,26 +161,20 @@ class _Transport extends StatelessWidget {
         _TransportButton(
           icon: Icons.skip_previous_rounded,
           tooltip: 'Previous',
-          onTap: onPrevious,
+          onTap: enabled ? onPrevious : null,
         ),
-        const SizedBox(width: Insets.xs),
-        // The play control is larger and uses the primary colour, which is the
-        // strongest affordance in the bar.
-        InteractiveGlass(
-          onTap: onPlayPause,
-          radius: Radii.pill,
-          padding: const EdgeInsets.all(Insets.sm),
-          child: Icon(
-            playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-            size: 26,
-            color: palette.textPrimary,
-          ),
+        // The play control is the primary action, so it alone gets a larger
+        // target and the primary text colour.
+        _TransportButton(
+          icon: playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          tooltip: playing ? 'Pause' : 'Play',
+          size: 22,
+          onTap: enabled ? onPlayPause : null,
         ),
-        const SizedBox(width: Insets.xs),
         _TransportButton(
           icon: Icons.skip_next_rounded,
           tooltip: 'Next',
-          onTap: onNext,
+          onTap: enabled ? onNext : null,
         ),
       ],
     );
@@ -182,21 +186,26 @@ class _TransportButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onTap,
+    this.size = 17,
   });
 
   final IconData icon;
   final String tooltip;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InteractiveGlass(
-        onTap: onTap,
-        radius: Radii.pill,
-        padding: const EdgeInsets.all(Insets.sm),
-        child: Icon(icon, size: 20, color: context.palette.textSecondary),
+    final palette = context.palette;
+    return InteractiveGlass(
+      onTap: onTap,
+      radius: Radii.pill,
+      tooltip: tooltip,
+      padding: const EdgeInsets.all(Insets.sm),
+      child: Icon(
+        icon,
+        size: size,
+        color: onTap == null ? palette.textTertiary : palette.textPrimary,
       ),
     );
   }
@@ -210,7 +219,8 @@ class _Progress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    final progress = player.progress ?? 0.0;
+    final progress = player.progress;
+    final enabled = progress != null;
 
     return Row(
       children: [
@@ -220,14 +230,10 @@ class _Progress extends StatelessWidget {
         ),
         const SizedBox(width: Insets.sm),
         Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(Radii.pill),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 4,
-              backgroundColor: palette.textSecondary.withValues(alpha: 0.2),
-              valueColor: AlwaysStoppedAnimation(palette.textPrimary),
-            ),
+          child: Scrubber(
+            value: progress ?? 0,
+            activeColor: enabled ? palette.textSecondary : palette.textTertiary,
+            onChanged: enabled ? (_) {} : null,
           ),
         ),
         const SizedBox(width: Insets.sm),
@@ -247,24 +253,23 @@ class _Progress extends StatelessWidget {
 }
 
 class _Volume extends StatelessWidget {
+  const _Volume();
+
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.volume_down_rounded, size: 16, color: palette.textSecondary),
+        Icon(Icons.volume_down_rounded, size: 15, color: palette.textTertiary),
         const SizedBox(width: Insets.sm),
         SizedBox(
-          width: 88,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(Radii.pill),
-            child: LinearProgressIndicator(
-              value: 0.7,
-              minHeight: 4,
-              backgroundColor: palette.textSecondary.withValues(alpha: 0.2),
-              valueColor: AlwaysStoppedAnimation(palette.textSecondary),
-            ),
+          width: 64,
+          child: Scrubber(
+            value: 0.7,
+            activeColor: palette.textTertiary,
+            trackColor: palette.textTertiary.withValues(alpha: 0.4),
+            onChanged: (_) {},
           ),
         ),
       ],

@@ -156,8 +156,22 @@ impl Sosumi {
     }
 
     /// Registers a provider. Registering a provider with a known id replaces it.
+    ///
+    /// The provider immediately receives the current account, so a provider
+    /// registered after sign-in is usable without waiting for the next change.
     pub fn register(&mut self, provider: Arc<dyn MediaProvider>) {
+        provider.set_account(self.account());
         self.providers.insert(provider.id().clone(), provider);
+    }
+
+    /// The account credentials, as providers see them.
+    fn account(&self) -> sosumi_provider_api::Account {
+        let session = self.session.read();
+        sosumi_provider_api::Account {
+            user_token: session.music_user_token.clone(),
+            developer_token: session.developer_token.clone(),
+            storefront: session.storefront.clone(),
+        }
     }
 
     /// The event bus, for wiring UI and integrations.
@@ -185,10 +199,42 @@ impl Sosumi {
     }
 
     /// Replaces the session, for example after sign-in.
-    pub fn set_session(&self, session: Session) {
+    /// Replaces the session and persists it.
+    ///
+    /// The session is stored, written to the encrypted store, *and* handed to
+    /// every provider, which is what makes sign-in take effect. Storing it alone
+    /// would leave providers serving unauthenticated requests while the UI
+    /// reported success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a provider error when the store cannot be written. The in-memory
+    /// session is still applied, so a failed write costs persistence rather than
+    /// the current sign-in.
+    pub fn set_session(&self, session: Session) -> Result<()> {
         let signed_in = session.is_signed_in();
+        let account = sosumi_provider_api::Account {
+            user_token: session.music_user_token.clone(),
+            developer_token: session.developer_token.clone(),
+            storefront: session.storefront.clone(),
+        };
+        for provider in self.providers.values() {
+            provider.set_account(account.clone());
+        }
         *self.session.write() = session;
         self.events.publish(Event::AuthChanged { signed_in });
+        Ok(())
+    }
+
+    /// Persists the current session to the encrypted store.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the sealer cannot be built or the store cannot be written.
+    pub fn persist_session(&self, sealer: sosumi_security::Sealer) -> Result<()> {
+        let mut store = SecretStore::open(self.paths.secret_store(), sealer)
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        self.session.read().save(&mut store).map_err(|e| ProviderError::Other(e.to_string()))
     }
 
     /// The active quality.
@@ -431,10 +477,9 @@ impl Sosumi {
         let store = SecretStore::open(self.paths.secret_store(), sealer)
             .map_err(|e| ProviderError::Other(e.to_string()))?;
         let session = Session::load(&store);
-        let signed_in = session.is_signed_in();
-        *self.session.write() = session;
-        self.events.publish(Event::AuthChanged { signed_in });
-        Ok(())
+        // `set_session` publishes the session to the providers, which is what
+        // makes a restored session usable immediately.
+        self.set_session(session)
     }
 }
 
@@ -476,7 +521,7 @@ mod tests {
         let mut events = app.subscribe();
         let mut session = Session::new();
         session.set_music_user_token("mut");
-        app.set_session(session);
+        app.set_session(session).expect("set session");
         assert!(app.session().is_signed_in());
         assert!(matches!(events.try_next_event(), Some(Event::AuthChanged { signed_in: true })));
     }
@@ -530,6 +575,121 @@ mod tests {
     fn audio_is_absent_until_started() {
         let app = app();
         assert!(!app.audio_ready());
+    }
+
+    #[test]
+    fn signing_in_hands_the_credentials_to_every_provider() {
+        // The regression this guards: `set_session` once stored the token
+        // without telling the provider, so the UI reported a successful sign-in
+        // while every request still failed as unauthenticated.
+        use async_trait::async_trait;
+        use parking_lot::Mutex;
+        use sosumi_provider_api::{
+            Account, Lyrics, MediaProvider, Page, Playlist, ProviderId, SearchQuery, SearchResults,
+            StreamRequest, Track,
+        };
+
+        #[derive(Default)]
+        struct Recorder {
+            account: Mutex<Option<Account>>,
+        }
+
+        #[async_trait]
+        impl MediaProvider for Recorder {
+            fn id(&self) -> &ProviderId {
+                static ID: std::sync::LazyLock<ProviderId> =
+                    std::sync::LazyLock::new(|| ProviderId("recorder".to_owned()));
+                &ID
+            }
+            fn name(&self) -> &'static str {
+                "Recorder"
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            fn set_account(&self, account: Account) {
+                *self.account.lock() = Some(account);
+            }
+            async fn search(&self, _: SearchQuery) -> sosumi_provider_api::Result<SearchResults> {
+                Ok(SearchResults::default())
+            }
+            async fn track(
+                &self,
+                _: &sosumi_provider_api::TrackId,
+            ) -> sosumi_provider_api::Result<Track> {
+                unimplemented!()
+            }
+            async fn album(
+                &self,
+                _: &str,
+                _: Option<&str>,
+            ) -> sosumi_provider_api::Result<(sosumi_provider_api::Album, Vec<Track>)> {
+                unimplemented!()
+            }
+            async fn playlist(
+                &self,
+                _: &str,
+                _: Option<&str>,
+            ) -> sosumi_provider_api::Result<(Playlist, Page<Track>)> {
+                unimplemented!()
+            }
+            async fn artist(
+                &self,
+                _: &str,
+                _: Option<&str>,
+            ) -> sosumi_provider_api::Result<(sosumi_provider_api::Artist, Vec<Track>)>
+            {
+                unimplemented!()
+            }
+            async fn lyrics(
+                &self,
+                _: &sosumi_provider_api::TrackId,
+                _: Option<&str>,
+            ) -> sosumi_provider_api::Result<Lyrics> {
+                unimplemented!()
+            }
+            async fn open(
+                &self,
+                _: StreamRequest,
+            ) -> sosumi_provider_api::Result<sosumi_provider_api::PlaybackSession> {
+                unimplemented!()
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = Paths::under(dir.path().to_path_buf());
+        std::mem::forget(dir);
+        let mut app = Sosumi::new(paths).expect("app");
+
+        let recorder = Arc::new(Recorder::default());
+        app.register(Arc::clone(&recorder) as Arc<dyn MediaProvider>);
+
+        let mut session = Session::new();
+        session.set_music_user_token("secret-token");
+        session.set_storefront("gb");
+        app.set_session(session).expect("set session");
+
+        let seen = recorder.account.lock().clone().expect("the provider must be told");
+        assert_eq!(seen.user_token.as_deref(), Some("secret-token"));
+        assert_eq!(seen.storefront, "gb");
+        assert!(seen.is_signed_in());
+    }
+
+    #[test]
+    fn a_provider_registered_after_sign_in_still_gets_the_account() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = Paths::under(dir.path().to_path_buf());
+        std::mem::forget(dir);
+        let mut app = Sosumi::new(paths).expect("app");
+
+        let mut session = Session::new();
+        session.set_music_user_token("token");
+        app.set_session(session).expect("set session");
+
+        // The local provider needs no credentials, but it must not panic when
+        // the core hands them over during registration.
+        app.register(Arc::new(sosumi_provider_local::LocalProvider::new(Vec::new())));
+        assert_eq!(app.session().music_user_token.as_deref(), Some("token"));
     }
 
     #[test]

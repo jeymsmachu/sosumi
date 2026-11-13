@@ -1,90 +1,78 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/theme.dart';
 
-/// A navigation destination in the sidebar.
-enum AppSection {
-  listen('Listen', Icons.play_circle_outline_rounded),
-  browse('Browse', Icons.grid_view_rounded),
-  library('Library', Icons.library_music_outlined),
-  search('Search', Icons.search_rounded);
-
-  const AppSection(this.label, this.icon);
-  final String label;
-  final IconData icon;
-}
-
-/// The window's title bar.
+/// The window's toolbar.
 ///
-/// It is a drag region, and it hosts the sidebar toggle and window actions. The
-/// window is frameless, so this bar is also the top of the glass canvas.
-class TitleBar extends StatelessWidget {
-  const TitleBar({
+/// Scope, per Apple's toolbar guidance and the reference app: the current view's
+/// title, then **actions on that view**. It deliberately does not carry account
+/// state, a queue button, or a settings shortcut — the account menu owns account
+/// commands, the player bar owns the queue, and Settings is a sidebar
+/// destination. Repeating them here duplicated every one of them.
+///
+/// The window is undecorated, so this bar is also the window's drag handle. That
+/// is why it is full width and why its empty space accepts a drag.
+class Toolbar extends StatelessWidget {
+  const Toolbar({
     super.key,
+    required this.title,
     required this.sidebarOpen,
     required this.onToggleSidebar,
   });
 
+  final String title;
   final bool sidebarOpen;
   final VoidCallback onToggleSidebar;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+
     return SizedBox(
-      height: Sizes.titleBarHeight,
+      height: 48,
       child: Row(
         children: [
           const SizedBox(width: Insets.md),
-          _BarButton(
-            icon: sidebarOpen
-                ? Icons.splitscreen_rounded
-                : Icons.splitscreen_outlined,
-            tooltip: sidebarOpen ? 'Hide sidebar' : 'Show sidebar',
+          _ToolbarButton(
+            icon: Icons.vertical_split_outlined,
+            tooltip: sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar',
             onTap: onToggleSidebar,
           ),
-          // The rest of the bar drags the window.
-          Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onPanStart: (_) => _startDrag(),
-              child: Center(
-                child: Text(
-                  'Sosumi',
-                  style: TextStyles.caption.copyWith(color: palette.textSecondary),
-                ),
-              ),
-            ),
-          ),
+          const SizedBox(width: Insets.md),
+          Text(title, style: TextStyles.title3.copyWith(color: palette.textPrimary)),
+          const Spacer(),
           const SizedBox(width: Insets.md),
         ],
       ),
     );
   }
-
-  void _startDrag() {
-    // Window dragging is wired through the platform channel once the Linux
-    // embedder adds it; a no-op keeps this bar inert rather than broken.
-  }
 }
 
-/// A small icon button styled for the glass chrome.
-class _BarButton extends StatelessWidget {
-  const _BarButton({required this.icon, required this.tooltip, required this.onTap});
+/// `_ToolbarButton` is private to this file.
+class _ToolbarButton extends ConsumerWidget {
+  const _ToolbarButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String tooltip;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InteractiveGlass(
-        onTap: onTap,
-        radius: Radii.small,
-        padding: const EdgeInsets.all(Insets.sm),
-        child: Icon(icon, size: 16, color: context.palette.textSecondary),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final palette = context.palette;
+    return InteractiveGlass(
+      onTap: onTap,
+      radius: Radii.small,
+      tooltip: tooltip,
+      padding: const EdgeInsets.all(6),
+      child: Icon(
+        icon,
+        size: 16,
+        color: onTap == null ? palette.textTertiary : palette.textSecondary,
       ),
     );
   }

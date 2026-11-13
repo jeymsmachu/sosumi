@@ -62,6 +62,15 @@ pub trait MediaProvider: Send + Sync + 'static {
     /// non-blocking; it must not perform network I/O.
     fn is_available(&self) -> bool;
 
+    /// Hands the provider the current account credentials.
+    ///
+    /// Called whenever the session changes — after sign-in, after sign-out, and
+    /// once at startup after restoring a stored session. A provider that needs
+    /// no credentials, such as a local-files source, leaves the default.
+    fn set_account(&self, account: crate::Account) {
+        let _ = account;
+    }
+
     /// Searches the catalog.
     async fn search(&self, query: SearchQuery) -> Result<SearchResults>;
 

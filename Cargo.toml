@@ -9,6 +9,7 @@ members = [
   "crates/sosumi-audio",
   "crates/sosumi-provider-apple",
   "crates/sosumi-core",
+  "crates/sosumi-cli",
   "crates/sosumi-provider-local",
   "crates/sosumi-spatial",
   "crates/sosumi-linux",

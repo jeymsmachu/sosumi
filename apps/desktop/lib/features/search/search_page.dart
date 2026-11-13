@@ -33,21 +33,28 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            Insets.page,
-            Insets.sm,
-            Insets.page,
-            Insets.lg,
-          ),
-          child: _SearchField(
-            controller: _controller,
-            onChanged: (value) =>
-                ref.read(searchProvider.notifier).search(value),
-            onClear: () {
-              _controller.clear();
-              ref.read(searchProvider.notifier).clear();
-            },
+        Center(
+          child: ConstrainedBox(
+            // Apple caps a search field to a comfortable reading measure rather
+            // than letting it span the whole window.
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                Insets.page,
+                0,
+                Insets.page,
+                Insets.lg,
+              ),
+              child: _SearchField(
+                controller: _controller,
+                onChanged: (value) =>
+                    ref.read(searchProvider.notifier).search(value),
+                onClear: () {
+                  _controller.clear();
+                  ref.read(searchProvider.notifier).clear();
+                },
+              ),
+            ),
           ),
         ),
         Expanded(child: _Results(state: search)),
@@ -70,12 +77,18 @@ class _SearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    return GlassSurface(
-      radius: Radii.medium,
+    // A search field is content-layer, so the fill is a standard surface rather
+    // than glass: it sits in the scrollable area, not above it.
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.fill,
+        borderRadius: BorderRadius.circular(Radii.row),
+        border: Border.all(color: palette.separator, width: 0.5),
+      ),
       padding: const EdgeInsets.symmetric(horizontal: Insets.md),
       child: Row(
         children: [
-          Icon(Icons.search_rounded, size: 18, color: palette.textSecondary),
+          Icon(Icons.search_rounded, size: 16, color: palette.textSecondary),
           const SizedBox(width: Insets.sm),
           Expanded(
             child: TextField(
@@ -136,11 +149,12 @@ class _Results extends ConsumerWidget {
 
     final results = state.results!;
     return ListView(
+      // Bottom padding clears the floating player, which overlays the content.
       padding: const EdgeInsets.fromLTRB(
         Insets.page,
         0,
         Insets.page,
-        Insets.page,
+        Sizes.playerHeight + Sizes.playerInset * 2,
       ),
       children: [
         if (results.tracks.isNotEmpty) ...[
@@ -268,7 +282,7 @@ class _ResultRowState extends State<_ResultRow> {
           padding: const EdgeInsets.symmetric(vertical: Insets.sm, horizontal: Insets.sm),
           decoration: BoxDecoration(
             color: _hovered ? palette.glassFill : Colors.transparent,
-            borderRadius: BorderRadius.circular(Radii.medium),
+            borderRadius: BorderRadius.circular(Radii.row),
           ),
           child: Row(
             children: [
@@ -315,7 +329,7 @@ class _ResultRowState extends State<_ResultRow> {
                     const SizedBox(height: 2),
                     Text(
                       widget.subtitle,
-                      style: TextStyles.rowSubtitle.copyWith(color: palette.textSecondary),
+                      style: TextStyles.callout.copyWith(color: palette.textSecondary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),

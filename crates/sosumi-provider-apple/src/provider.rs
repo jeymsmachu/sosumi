@@ -162,6 +162,29 @@ impl MediaProvider for AppleMusicProvider {
         &APPLE_PROVIDER_ID
     }
 
+    /// Copies the account credentials into the provider.
+    ///
+    /// This is what makes sign-in actually take effect: the core stores the
+    /// session, then hands it here, and every subsequent request carries the
+    /// subscriber's token. Without this the UI would report success and playback
+    /// would still fail.
+    fn set_account(&self, account: sosumi_provider_api::Account) {
+        let mut credentials = self.credentials.write();
+        credentials.music_user_token = account.user_token;
+        if account.developer_token.is_some() {
+            credentials.developer_token = account.developer_token;
+        }
+        if !account.storefront.is_empty() {
+            credentials.storefront = account.storefront;
+        }
+        tracing::debug!(
+            target: "sosumi::apple",
+            signed_in = credentials.music_user_token.is_some(),
+            storefront = %credentials.storefront,
+            "account updated"
+        );
+    }
+
     fn name(&self) -> &'static str {
         "Apple Music"
     }

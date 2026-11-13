@@ -15,13 +15,16 @@ class SettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
-    final palette = context.palette;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(Insets.page, Insets.sm, Insets.page, Insets.page),
+      // Bottom padding clears the floating player, which overlays the content.
+      padding: const EdgeInsets.fromLTRB(
+        Insets.page,
+        0,
+        Insets.page,
+        Sizes.playerHeight + Sizes.playerInset * 2,
+      ),
       children: [
-        Text('Settings', style: TextStyles.largeTitle.copyWith(color: palette.textPrimary)),
-        const SizedBox(height: Insets.lg),
         const _Group(
           title: 'Account',
           children: [
@@ -66,11 +69,16 @@ class _Group extends StatelessWidget {
           padding: const EdgeInsets.only(left: Insets.xs, bottom: Insets.sm),
           child: Text(
             title.toUpperCase(),
-            style: TextStyles.caption.copyWith(color: palette.textSecondary),
+            style: TextStyles.caption1.copyWith(color: palette.textSecondary),
           ),
         ),
-        GlassSurface(
-          radius: Radii.panel,
+        // Content, not chrome. Settings groups are content-layer cards, so they
+        // use a standard surface; glass belongs only on the sidebar and the
+        // transport. See materials.md: "Don't use Liquid Glass in the content
+        // layer."
+        ContentSurface(
+          radius: Radii.large,
+          elevated: true,
           padding: const EdgeInsets.symmetric(
             horizontal: Insets.lg,
             vertical: Insets.md,
@@ -103,7 +111,7 @@ class _AccountRow extends ConsumerWidget {
               onPressed: () => ref.read(sessionProvider.notifier).signOut(),
               child: Text(
                 'Sign Out',
-                style: TextStyles.control.copyWith(color: palette.accent),
+                style: TextStyles.headline.copyWith(color: palette.accent),
               ),
             )
           : FilledButton(
@@ -116,10 +124,15 @@ class _AccountRow extends ConsumerWidget {
   }
 }
 
-class _QualityRow extends ConsumerWidget {
+class _QualityRow extends ConsumerStatefulWidget {
   const _QualityRow();
 
-  /// The tiers, in the order the picker shows them.
+  @override
+  ConsumerState<_QualityRow> createState() => _QualityRowState();
+}
+
+class _QualityRowState extends ConsumerState<_QualityRow> {
+  /// The tiers, most capable last, matching Apple Music's own ordering.
   static const _tiers = <(String, String, String?)>[
     ('high', 'High Quality', null),
     ('lossless', 'Lossless', 'Requires the FairPlay component'),
@@ -127,19 +140,23 @@ class _QualityRow extends ConsumerWidget {
     ('spatial', 'Spatial Audio', 'Requires the object-based renderer'),
   ];
 
+  String _selected = 'high';
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // The selection is local until the engine reports a quality change; the
-    // core is the source of truth and pushes an event when it changes.
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final (_, label, note) in _tiers)
+        for (final (value, label, note) in _tiers)
           _ChoiceRow(
             label: label,
             note: note,
+            // A tier needing a component that is not installed stays visible but
+            // is not selectable: showing the requirement is better than hiding
+            // the option, and much better than failing after the choice.
             enabled: note == null,
-            onTap: () {},
+            selected: value == _selected,
+            onTap: () => setState(() => _selected = value),
           ),
       ],
     );
@@ -202,7 +219,7 @@ class _SettingRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: TextStyles.rowSubtitle.copyWith(color: palette.textSecondary),
+                style: TextStyles.callout.copyWith(color: palette.textSecondary),
               ),
             ],
           ),
@@ -221,12 +238,14 @@ class _ChoiceRow extends StatelessWidget {
     required this.label,
     required this.note,
     required this.enabled,
+    required this.selected,
     required this.onTap,
   });
 
   final String label;
   final String? note;
   final bool enabled;
+  final bool selected;
   final VoidCallback onTap;
 
   @override
@@ -234,8 +253,12 @@ class _ChoiceRow extends StatelessWidget {
     final palette = context.palette;
     return InteractiveGlass(
       onTap: enabled ? onTap : null,
-      radius: Radii.medium,
-      padding: const EdgeInsets.symmetric(vertical: Insets.sm + 2),
+      radius: Radii.row,
+      selected: selected,
+      padding: const EdgeInsets.symmetric(
+        vertical: Insets.sm + 2,
+        horizontal: Insets.sm,
+      ),
       child: Row(
         children: [
           Expanded(
@@ -245,20 +268,27 @@ class _ChoiceRow extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: TextStyles.control.copyWith(
-                    color: enabled ? palette.textPrimary : palette.textSecondary,
+                  style: (selected ? TextStyles.rowTitle : TextStyles.body).copyWith(
+                    color: enabled ? palette.textPrimary : palette.textTertiary,
                   ),
                 ),
                 if (note != null) ...[
                   const SizedBox(height: 2),
                   Text(
                     note!,
-                    style: TextStyles.caption.copyWith(color: palette.textSecondary),
+                    style: TextStyles.caption1.copyWith(color: palette.textTertiary),
                   ),
                 ],
               ],
             ),
           ),
+          // The selection indicator. A colour change alone would fail for anyone
+          // who cannot distinguish the accent, so the checkmark carries the
+          // meaning and the tint only reinforces it.
+          if (selected)
+            Icon(Icons.check_rounded, size: 15, color: palette.accent)
+          else if (!enabled)
+            Icon(Icons.lock_outline_rounded, size: 13, color: palette.textTertiary),
         ],
       ),
     );
@@ -279,7 +309,7 @@ class _InstallButton extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.pill)),
         padding: const EdgeInsets.symmetric(horizontal: Insets.lg),
       ),
-      child: Text('Install', style: TextStyles.control.copyWith(color: context.palette.textPrimary)),
+      child: Text('Install', style: TextStyles.headline.copyWith(color: context.palette.textPrimary)),
     );
   }
 }
@@ -310,7 +340,7 @@ class _About extends StatelessWidget {
           'Sosumi is an unofficial client and is not affiliated with Apple. '
           'An active Apple Music subscription is required. See the project '
           'documentation for the full legal scope.',
-          style: TextStyles.caption.copyWith(color: palette.textSecondary),
+          style: TextStyles.caption1.copyWith(color: palette.textSecondary),
         ),
       ],
     );

@@ -182,6 +182,54 @@ impl Sealer {
     }
 }
 
+/// Derives a stable 32-byte key for the local store.
+///
+/// The ideal custodian for this key is the OS keyring, and `sosumi-storage`
+/// takes the key as a parameter precisely so that can be swapped in without
+/// touching the envelope format. Until then the key is derived from stable
+/// machine and user identifiers, which is weaker than a keyring — an attacker
+/// with the same files can re-derive it — but still leaves the store encrypted
+/// at rest rather than plaintext.
+///
+/// This is stated plainly in `docs/SECURITY.md`; the app never claims the store
+/// is tamper-proof.
+///
+/// # Errors
+///
+/// Fails when the platform exposes no identifying data at all, which would make
+/// the derived key identical across machines.
+pub fn machine_key() -> Result<[u8; 32], anyhow::Error> {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"sosumi-store-v1");
+
+    // The machine id is the most stable identifier available on Linux.
+    let mut identified = false;
+    for path in ["/etc/machine-id", "/var/lib/dbus/machine-id"] {
+        if let Ok(contents) = std::fs::read(path) {
+            hasher.update(contents);
+            identified = true;
+            break;
+        }
+    }
+
+    if let Some(user) = std::env::var_os("USER") {
+        hasher.update(user.as_encoded_bytes());
+        identified = true;
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        hasher.update(home.as_encoded_bytes());
+        identified = true;
+    }
+
+    if !identified {
+        anyhow::bail!("no machine or user identifier is available to derive a store key");
+    }
+
+    Ok(hasher.finalize().into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

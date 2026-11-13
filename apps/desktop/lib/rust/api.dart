@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `block_on`, `default_music_directories`, `from_provider`, `parse_quality`, `parse_repeat`
+// These functions are ignored because they are not marked as `pub`: `block_on`, `default_music_directories`, `from_provider`, `machine_sealer`, `parse_quality`, `parse_repeat`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`
 
 /// Builds the engine. The UI calls this once, at startup.
@@ -104,17 +104,23 @@ abstract class Engine implements RustOpaqueInterface {
   /// Returns the mode that was applied, so the UI can reflect it.
   Future<String> setRepeat({required String mode});
 
-  /// Records a signed-in session.
+  /// Records a signed-in session and persists it.
+  ///
+  /// The session is handed to every provider immediately, so a search or a
+  /// playback request made straight after this call is authenticated. It is
+  /// also written to the encrypted store, so a restart does not require
+  /// signing in again.
   ///
   /// # Errors
   ///
-  /// Fails when the session cannot be persisted.
+  /// Fails when the store cannot be written. The in-memory session is still
+  /// applied, so a failed write costs persistence rather than the sign-in.
   Future<SessionDto> setSession({
     required String musicUserToken,
     required String storefront,
   });
 
-  /// Signs out.
+  /// Signs out and clears the persisted session.
   Future<void> signOut();
 
   /// Starts the audio engine.

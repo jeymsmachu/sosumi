@@ -2533,11 +2533,17 @@ class EngineImpl extends RustOpaque implements Engine {
   Future<String> setRepeat({required String mode}) =>
       RustLib.instance.api.crateApiEngineSetRepeat(that: this, mode: mode);
 
-  /// Records a signed-in session.
+  /// Records a signed-in session and persists it.
+  ///
+  /// The session is handed to every provider immediately, so a search or a
+  /// playback request made straight after this call is authenticated. It is
+  /// also written to the encrypted store, so a restart does not require
+  /// signing in again.
   ///
   /// # Errors
   ///
-  /// Fails when the session cannot be persisted.
+  /// Fails when the store cannot be written. The in-memory session is still
+  /// applied, so a failed write costs persistence rather than the sign-in.
   Future<SessionDto> setSession({
     required String musicUserToken,
     required String storefront,
@@ -2547,7 +2553,7 @@ class EngineImpl extends RustOpaque implements Engine {
     storefront: storefront,
   );
 
-  /// Signs out.
+  /// Signs out and clears the persisted session.
   Future<void> signOut() =>
       RustLib.instance.api.crateApiEngineSignOut(that: this);
 

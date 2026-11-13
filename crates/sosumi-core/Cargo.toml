@@ -31,4 +31,6 @@ tokio-util.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+sosumi-provider-local.workspace = true
+async-trait.workspace = true
 tempfile.workspace = true
