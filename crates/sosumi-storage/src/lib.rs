@@ -7,4 +7,4 @@ pub mod paths;
 pub mod store;
 
 pub use paths::Paths;
-pub use store::SecretStore;
+pub use store::{SecretStore, StoreError};

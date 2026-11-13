@@ -1919,6 +1919,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sosumi-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "parking_lot",
+ "rand 0.8.8",
+ "serde",
+ "sosumi-audio",
+ "sosumi-diagnostics",
+ "sosumi-metadata",
+ "sosumi-provider-api",
+ "sosumi-security",
+ "sosumi-storage",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "sosumi-diagnostics"
 version = "0.1.0"
 dependencies = [
@@ -2411,6 +2433,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

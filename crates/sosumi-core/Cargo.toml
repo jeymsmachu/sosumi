@@ -1,0 +1,32 @@
+[package]
+name = "sosumi-core"
+description = "Application orchestration: player, queue, session, and the event bus."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sosumi-audio.workspace = true
+sosumi-diagnostics.workspace = true
+sosumi-metadata.workspace = true
+sosumi-provider-api.workspace = true
+sosumi-security.workspace = true
+sosumi-storage.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
