@@ -21,6 +21,7 @@ dependencies:
   flutter_lyric: ^4.1.0
 
   cupertino_icons: ^1.0.8
+  desktop_webview_window: ^0.4.2
 
 dev_dependencies:
   flutter_test:

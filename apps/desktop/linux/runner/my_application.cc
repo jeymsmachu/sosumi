@@ -31,7 +31,30 @@ static void my_application_activate(GApplication* application) {
   // full surface; this is what lets the glass reach the window edges.
   gtk_window_set_decorated(window, FALSE);
   gtk_window_set_title(window, "Sosumi");
-  gtk_window_set_default_size(window, 1280, 800);
+
+  // Size the window to the work area rather than to a fixed guess. A hard-coded
+  // 1280x800 is taller than a 768-pixel display, which pushes the transport and
+  // the account row off the bottom edge where they cannot be reached.
+  GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(window));
+  GdkMonitor* monitor =
+      gdk_display_get_primary_monitor(display) ?: gdk_display_get_monitor(display, 0);
+  if (monitor != nullptr) {
+    GdkRectangle work_area;
+    gdk_monitor_get_workarea(monitor, &work_area);
+    const int margin = 48;
+    int width = work_area.width - margin * 2;
+    int height = work_area.height - margin * 2;
+    // Keep a sensible minimum for a two-column layout.
+    if (width < 900) width = 900;
+    if (height < 560) height = 560;
+    // Never exceed the work area, or the window becomes unreachable.
+    if (width > work_area.width) width = work_area.width;
+    if (height > work_area.height) height = work_area.height;
+    gtk_window_set_default_size(window, width, height);
+  } else {
+    gtk_window_set_default_size(window, 1100, 700);
+  }
+  gtk_window_set_position(window, GTK_WIN_POS_CENTER);
 
   // A translucent surface lets the compositor blur what is behind the window,
   // which is what makes the glass read as glass rather than as a grey panel.

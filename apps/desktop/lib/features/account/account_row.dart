@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/apple_sign_in.dart';
 import '../../core/session.dart';
 import '../../theme/theme.dart';
 
@@ -8,16 +11,21 @@ import '../../theme/theme.dart';
 ///
 /// Apple's shape: a circular avatar on the leading side and the display name
 /// beside it. Selecting it does **not** open a profile page; it reveals a menu of
-/// account commands, which is what the reference does and what the HIG asks for
-/// — a menu is the space-efficient way to present a short list of commands.
+/// account commands, which is what the reference app does and what the HIG asks
+/// for — a menu is the space-efficient way to present a short list of commands.
 ///
-/// The menu follows the HIG's rules for menus: title-style capitalization,
-/// no articles, icons only where they clarify, a separator between the account
-/// commands and signing out, and destructive styling on Sign Out.
+/// The menu follows the HIG's rules: title-style capitalization, no articles,
+/// icons only where they clarify (and uniformly within a group), a separator
+/// between the account commands and the session command, the accent reserved for
+/// the destructive one, and unavailable items shown dimmed rather than omitted.
 class AccountRow extends ConsumerWidget {
-  const AccountRow({super.key, required this.collapsed});
+  const AccountRow({super.key, required this.collapsed, required this.onOpenSettings});
 
   final bool collapsed;
+
+  /// Opens the Settings section. The shell owns navigation, so the row reports
+  /// the intent rather than reaching into the destination list.
+  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -25,30 +33,39 @@ class AccountRow extends ConsumerWidget {
     final palette = context.palette;
 
     return PopupMenuButton<AccountAction>(
-      // Anchored to the leading edge and opening upward, because the row sits at
-      // the foot of the window where there is no room below.
+      // Opens upward, because the row sits at the foot of the window where there
+      // is no room beneath it.
       position: PopupMenuPosition.over,
       offset: const Offset(0, -8),
       tooltip: '',
+      color: palette.elevatedGlass,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.row),
+        side: BorderSide(color: palette.glassBorder, width: 0.5),
+      ),
       onSelected: (action) => _handle(context, ref, action),
-      itemBuilder: (context) => _menuItems(context),
+      itemBuilder: (context) => _menuItems(context, session.signedIn),
       child: _AccountLabel(session: session, collapsed: collapsed, palette: palette),
     );
   }
 
-  List<PopupMenuEntry<AccountAction>> _menuItems(BuildContext context) {
+  List<PopupMenuEntry<AccountAction>> _menuItems(BuildContext context, bool signedIn) {
     final palette = context.palette;
     return [
-      _item(AccountAction.help, 'Help', Icons.help_outline_rounded, palette),
+      // Help and Transfer Music have no implementation yet. They are shown
+      // disabled rather than omitted: the HIG asks for an unavailable item to
+      // stay visible and dimmed so a menu's contents stay predictable.
+      _item(AccountAction.help, 'Help', Icons.help_outline_rounded, palette, enabled: false),
       _item(AccountAction.settings, 'Settings…', Icons.settings_outlined, palette),
       _item(
         AccountAction.transferMusic,
         'Transfer Music…',
         Icons.arrow_right_alt_rounded,
         palette,
+        enabled: false,
       ),
       const PopupMenuDivider(),
-      if (sessionSignedIn(context))
+      if (signedIn)
         _item(AccountAction.signOut, 'Sign Out', null, palette)
       else
         _item(AccountAction.signIn, 'Sign In…', null, palette),
@@ -61,45 +78,42 @@ class AccountRow extends ConsumerWidget {
     AccountAction action,
     String label,
     IconData? icon,
-    SosumiPalette palette,
-  ) {
+    SosumiPalette palette, {
+    bool enabled = true,
+  }) {
+    final color = !enabled
+        ? palette.textTertiary
+        : action == AccountAction.signOut
+            ? palette.accent
+            : palette.textPrimary;
+
     return PopupMenuItem<AccountAction>(
       value: action,
+      enabled: enabled,
       height: 32,
       child: Row(
         children: [
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyles.body.copyWith(
-                color: action == AccountAction.signOut ? palette.accent : palette.textPrimary,
-              ),
-            ),
-          ),
+          Expanded(child: Text(label, style: TextStyles.body.copyWith(color: color))),
           if (icon != null) ...[
             const SizedBox(width: Insets.xl),
-            Icon(icon, size: 14, color: palette.textSecondary),
+            Icon(icon, size: 14, color: color),
           ],
         ],
       ),
     );
   }
 
-  bool sessionSignedIn(BuildContext context) =>
-      ProviderScope.containerOf(context).read(sessionProvider).signedIn;
-
   void _handle(BuildContext context, WidgetRef ref, AccountAction action) {
     switch (action) {
       case AccountAction.signIn:
-        showSignInSheet(context, ref);
+        unawaited(showSignIn(context, ref));
       case AccountAction.signOut:
-        ref.read(sessionProvider.notifier).signOut();
+        unawaited(ref.read(sessionProvider.notifier).signOut());
       case AccountAction.settings:
+        onOpenSettings();
       case AccountAction.help:
       case AccountAction.transferMusic:
-        // Not implemented yet. The menu keeps the item visible and dimmed
-        // behaviour arrives with the actions; leaving them out would make the
-        // menu's contents unpredictable.
+        // Disabled in the menu, so this is unreachable.
         break;
     }
   }
@@ -149,8 +163,8 @@ class _AccountLabel extends StatelessWidget {
   }
 }
 
-/// The circular avatar. Signed out, it is a neutral person glyph; signed in, it
-/// is the account's artwork.
+/// The circular avatar. Signed out it is a neutral person glyph; signed in it is
+/// the account's artwork.
 class _Avatar extends StatelessWidget {
   const _Avatar({required this.session, required this.palette});
 
@@ -182,37 +196,55 @@ class _Avatar extends StatelessWidget {
   }
 }
 
-/// The sign-in sheet.
+/// Runs the sign-in flow and reports the outcome in the interface.
 ///
 /// The HIG is explicit that sign-in should be delayed until it is needed and
-/// that the view must explain why the account is required. This does both: it
-/// opens only when asked, and it states what signing in provides and what
-/// Sosumi does with the credentials.
-void showSignInSheet(BuildContext context, WidgetRef ref) {
-  showDialog<void>(
+/// that the request should explain why the account is required. This is called
+/// only when the user asks, and the pane below states the reason before handing
+/// off to Apple's own page.
+///
+/// Deliberately not a dialog that never closes: the user may decline, and that
+/// must leave the app exactly as it was.
+Future<void> showSignIn(BuildContext context, WidgetRef ref) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+
+  // Explain before opening a web view, so the user knows what they are about to
+  // see and why.
+  final proceed = await showDialog<bool>(
     context: context,
     barrierColor: Colors.black.withValues(alpha: 0.4),
-    builder: (context) => const _SignInSheet(),
+    builder: (context) => const _SignInExplainer(),
   );
-}
+  if (proceed != true) return;
 
-class _SignInSheet extends ConsumerStatefulWidget {
-  const _SignInSheet();
+  final result = await AppleSignIn.run();
 
-  @override
-  ConsumerState<_SignInSheet> createState() => _SignInSheetState();
-}
-
-class _SignInSheetState extends ConsumerState<_SignInSheet> {
-  final _tokenController = TextEditingController();
-  String? _error;
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _tokenController.dispose();
-    super.dispose();
+  switch (result) {
+    case SignInSuccess(:final userToken, :final storefront):
+      await ref.read(sessionProvider.notifier).setSession(
+            musicUserToken: userToken,
+            storefront: storefront,
+          );
+    case SignInCancelled():
+      // Nothing to say: the user changed their mind.
+      break;
+    case SignInFailed(:final message):
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
   }
+}
+
+/// What signing in provides, and what Sosumi does with it.
+///
+/// Apple's guidance is to write a brief, friendly description of the reason for
+/// the requirement and its benefit, so this states both plainly and names the
+/// one thing a cautious user actually wants to know: where the password goes.
+class _SignInExplainer extends StatelessWidget {
+  const _SignInExplainer();
 
   @override
   Widget build(BuildContext context) {
@@ -221,7 +253,7 @@ class _SignInSheetState extends ConsumerState<_SignInSheet> {
     return Dialog(
       backgroundColor: Colors.transparent,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
+        constraints: const BoxConstraints(maxWidth: 400),
         child: GlassSurface(
           radius: Radii.panel,
           blur: 44,
@@ -231,53 +263,50 @@ class _SignInSheetState extends ConsumerState<_SignInSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Sign In', style: TextStyles.title2.copyWith(color: palette.textPrimary)),
-              const SizedBox(height: Insets.sm),
+              Row(
+                children: [
+                  Icon(Icons.apple, size: 20, color: palette.textPrimary),
+                  const SizedBox(width: Insets.sm),
+                  Text('Sign in to Apple Music',
+                      style: TextStyles.title3.copyWith(color: palette.textPrimary)),
+                ],
+              ),
+              const SizedBox(height: Insets.md),
               Text(
                 'Sosumi plays music from your Apple Music subscription. Signing in '
-                'connects your account so the app can stream and download what your '
+                'connects the account so the app can stream and download what your '
                 'subscription covers.',
-                style: TextStyles.callout.copyWith(color: palette.textSecondary),
+                style: TextStyles.body.copyWith(color: palette.textSecondary),
               ),
-              const SizedBox(height: Insets.lg),
-              Text(
-                'Your credentials go only to Apple. Sosumi stores the session token '
-                'on this machine, encrypted, and never sends it anywhere else.',
-                style: TextStyles.caption1.copyWith(color: palette.textTertiary),
-              ),
-              const SizedBox(height: Insets.lg),
-              _Field(
-                controller: _tokenController,
-                hint: 'Music-User-Token',
-                enabled: !_busy,
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: Insets.sm),
-                Row(
-                  children: [
-                    Icon(Icons.warning_amber_rounded, size: 13, color: palette.accent),
-                    const SizedBox(width: Insets.xs),
-                    Expanded(
-                      child: Text(
-                        _error!,
-                        style: TextStyles.caption1.copyWith(color: palette.accent),
-                      ),
+              const SizedBox(height: Insets.md),
+              // The reassurance worth stating: the password stays with Apple.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.lock_outline_rounded, size: 14, color: palette.textTertiary),
+                  const SizedBox(width: Insets.sm),
+                  Expanded(
+                    child: Text(
+                      'You sign in on Apple\u2019s own page, inside this window. Your '
+                      'Apple ID password goes directly to Apple and is never seen or '
+                      'stored by Sosumi.',
+                      style: TextStyles.caption1.copyWith(color: palette.textTertiary),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
               const SizedBox(height: Insets.lg),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: _busy ? null : () => Navigator.of(context).pop(),
-                    child: Text('Cancel',
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: Text('Not Now',
                         style: TextStyles.body.copyWith(color: palette.textSecondary)),
                   ),
                   const SizedBox(width: Insets.sm),
                   FilledButton(
-                    onPressed: _busy ? null : _submit,
+                    onPressed: () => Navigator.of(context).pop(true),
                     style: FilledButton.styleFrom(
                       backgroundColor: palette.accent,
                       foregroundColor: Colors.white,
@@ -289,83 +318,12 @@ class _SignInSheetState extends ConsumerState<_SignInSheet> {
                         vertical: Insets.md,
                       ),
                     ),
-                    child: _busy
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text('Sign In'),
+                    child: const Text('Continue'),
                   ),
                 ],
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _submit() async {
-    final token = _tokenController.text.trim();
-    if (token.isEmpty) {
-      setState(() => _error = 'Paste your Music-User-Token to continue.');
-      return;
-    }
-
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-
-    try {
-      await ref.read(sessionProvider.notifier).setSession(
-            musicUserToken: token,
-            storefront: 'us',
-          );
-      if (mounted) Navigator.of(context).pop();
-    } on Exception catch (error) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = '$error';
-        });
-      }
-    }
-  }
-}
-
-class _Field extends StatelessWidget {
-  const _Field({required this.controller, required this.hint, required this.enabled});
-
-  final TextEditingController controller;
-  final String hint;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.palette;
-    return Container(
-      decoration: BoxDecoration(
-        color: palette.fill,
-        borderRadius: BorderRadius.circular(Radii.small),
-        border: Border.all(color: palette.separator, width: 0.5),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: Insets.md),
-      child: TextField(
-        controller: controller,
-        enabled: enabled,
-        style: TextStyles.body.copyWith(color: palette.textPrimary),
-        cursorColor: palette.accent,
-        decoration: InputDecoration(
-          border: InputBorder.none,
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(vertical: Insets.md),
-          hintText: hint,
-          hintStyle: TextStyles.body.copyWith(color: palette.textTertiary),
         ),
       ),
     );

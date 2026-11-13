@@ -43,11 +43,13 @@ class Sidebar extends StatelessWidget {
     required this.section,
     required this.onSelect,
     required this.collapsed,
+    required this.onOpenSettings,
   });
 
   final AppSection section;
   final ValueChanged<AppSection> onSelect;
   final bool collapsed;
+  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +99,7 @@ class Sidebar extends StatelessWidget {
             // The HIG warns against critical actions at the foot of a sidebar
             // because a relocated window can hide them. The account menu is not
             // critical: every command in it is reachable elsewhere.
-            AccountRow(collapsed: collapsed),
+            AccountRow(collapsed: collapsed, onOpenSettings: onOpenSettings),
           ],
         ),
       ),

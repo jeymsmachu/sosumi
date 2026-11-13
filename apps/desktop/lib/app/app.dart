@@ -50,6 +50,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 section: _section,
                 collapsed: !_sidebarOpen,
                 onSelect: (section) => setState(() => _section = section),
+                onOpenSettings: () => setState(() => _section = AppSection.settings),
               ),
               // A hairline between the sidebar and the content, which is what
               // macOS uses in place of a shadow.
